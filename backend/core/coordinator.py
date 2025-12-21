@@ -1,0 +1,660 @@
+"""
+Backend pipeline coordinator
+Responsible for coordinating the complete lifecycle of PerceptionManager and ProcessingPipeline
+"""
+
+import asyncio
+from datetime import datetime, timedelta
+from typing import Any, Dict, Optional
+
+from config.loader import get_config
+from core.db import get_db
+from core.logger import get_logger
+
+logger = get_logger(__name__)
+
+# Global coordinator instance
+_coordinator: Optional["PipelineCoordinator"] = None
+
+
+class PipelineCoordinator:
+    """Pipeline coordinator"""
+
+    def __init__(self, config: Dict[str, Any]):
+        """
+        Initialize coordinator
+
+        Args:
+            config: Configuration dictionary
+        """
+        self.config = config
+        self.processing_interval = config.get("monitoring.processing_interval", 30)
+        self.window_size = config.get("monitoring.window_size", 60)
+        self.capture_interval = config.get("monitoring.capture_interval", 0.2)
+
+        # Initialize managers (lazy import to avoid circular dependencies)
+        self.perception_manager = None
+        self.processing_pipeline = None
+        self.action_agent = None
+        self.raw_agent = None
+        self.event_agent = None
+        self.session_agent = None
+        self.todo_agent = None
+        self.knowledge_agent = None
+        self.diary_agent = None
+        self.cleanup_agent = None
+
+        # Running state
+        self.is_running = False
+        self.is_paused = False
+        self.processing_task: Optional[asyncio.Task] = None
+        self.mode: str = (
+            "stopped"  # running | stopped | requires_model | error | starting
+        )
+        self.last_error: Optional[str] = None
+        self.active_model: Optional[Dict[str, Any]] = None
+
+        # Statistics
+        self.stats: Dict[str, Any] = {
+            "start_time": None,
+            "total_processing_cycles": 0,
+            "last_processing_time": None,
+            "perception_stats": {},
+            "processing_stats": {},
+        }
+        self._last_processed_timestamp: Optional[datetime] = None
+
+    def _set_state(self, *, mode: str, error: Optional[str] = None) -> None:
+        """Update coordinator state fields"""
+        self.mode = mode
+        self.last_error = error
+        if error:
+            logger.debug("Coordinator state updated: mode=%s, error=%s", mode, error)
+        else:
+            logger.debug("Coordinator state updated: mode=%s", mode)
+
+    def _sanitize_active_model(self, model: Dict[str, Any]) -> Dict[str, Any]:
+        """Build active model information for frontend display, remove sensitive fields"""
+        sanitized = {
+            "id": model.get("id"),
+            "name": model.get("name") or model.get("model"),
+            "provider": model.get("provider"),
+            "model": model.get("model"),
+            "last_test_status": bool(model.get("last_test_status")),
+            "last_tested_at": model.get("last_tested_at"),
+            "last_test_error": model.get("last_test_error"),
+            "updated_at": model.get("updated_at"),
+        }
+        return sanitized
+
+    def _refresh_active_model(self) -> None:
+        """Refresh current active model information, keep state synchronized with database"""
+        try:
+            db = get_db()
+            active_model = db.models.get_active()
+            if active_model:
+                sanitized = self._sanitize_active_model(active_model)
+                self.active_model = sanitized
+                if not sanitized.get("last_test_status"):
+                    message = (
+                        sanitized.get("last_test_error")
+                        or "Active model has not passed API test, please click test button in model management first."
+                    )
+                    if self.mode != "requires_model" or self.last_error != message:
+                        self._set_state(mode="requires_model", error=message)
+            else:
+                self.active_model = None
+        except Exception as exc:
+            logger.debug("Failed to refresh active model information: %s", exc)
+
+    def _ensure_active_model(self) -> Optional[Dict[str, Any]]:
+        """Ensure active LLM model configuration exists, return None if missing"""
+        try:
+            db = get_db()
+            active_model = db.models.get_active()
+            if not active_model:
+                message = "No active LLM model configuration detected, please add and activate model in settings."
+                self._set_state(mode="requires_model", error=message)
+                self.active_model = None
+                logger.warning(message)
+                return None
+            required_fields = ["api_key", "api_url", "model"]
+            missing = [
+                field for field in required_fields if not active_model.get(field)
+            ]
+            if missing:
+                message = f"Active model configuration missing required fields: {', '.join(missing)}, please complete in settings and restart."
+                self._set_state(mode="requires_model", error=message)
+                self.active_model = None
+                logger.warning(message)
+                return None
+
+            sanitized = self._sanitize_active_model(active_model)
+            self.active_model = sanitized
+
+            # If model has not passed test, only log warning but still allow system to start
+            if not sanitized.get("last_test_status"):
+                message = (
+                    sanitized.get("last_test_error")
+                    or "Active model has not passed connectivity test, please click test button in model management to verify configuration."
+                )
+                logger.warning(message)
+                # Note: No longer set to requires_model mode, allow system to continue starting
+
+            return active_model
+        except Exception as exc:
+            message = f"Unable to read active LLM model configuration: {exc}"
+            logger.error(message)
+            self._set_state(mode="error", error=message)
+            self.active_model = None
+            return None
+
+    def _on_system_sleep(self) -> None:
+        """System sleep callback - pause all background tasks"""
+        if not self.is_running:
+            return
+
+        logger.debug("System sleep detected, pausing coordinator and all agents")
+        self.is_paused = True
+
+        # Pause all agents
+        try:
+            if self.event_agent:
+                self.event_agent.pause()
+            if self.session_agent:
+                self.session_agent.pause()
+            if self.cleanup_agent:
+                self.cleanup_agent.pause()
+            logger.debug("All agents paused")
+        except Exception as e:
+            logger.error(f"Failed to pause agents: {e}")
+
+    def _on_system_wake(self) -> None:
+        """System wake callback - resume all background tasks"""
+        if not self.is_running or not self.is_paused:
+            return
+
+        logger.debug("System wake detected, resuming coordinator and all agents")
+        self.is_paused = False
+
+        # Resume all agents
+        try:
+            if self.event_agent:
+                self.event_agent.resume()
+            if self.session_agent:
+                self.session_agent.resume()
+            if self.cleanup_agent:
+                self.cleanup_agent.resume()
+            logger.debug("All agents resumed")
+        except Exception as e:
+            logger.error(f"Failed to resume agents: {e}")
+
+    def _init_managers(self):
+        """Lazy initialization of managers"""
+        if self.perception_manager is None:
+            from perception.manager import PerceptionManager
+
+            self.perception_manager = PerceptionManager(
+                capture_interval=self.capture_interval,
+                window_size=self.window_size,
+                on_system_sleep=self._on_system_sleep,
+                on_system_wake=self._on_system_wake,
+            )
+
+        if self.processing_pipeline is None:
+            from processing.pipeline import ProcessingPipeline
+
+            processing_config = self.config.get("processing", {})
+            language_config = self.config.get("language", {})
+            self.processing_pipeline = ProcessingPipeline(
+                screenshot_threshold=processing_config.get(
+                    "action_extraction_threshold", 20
+                ),
+                max_screenshots_per_extraction=processing_config.get(
+                    "max_screenshots_per_extraction", 20
+                ),
+                activity_summary_interval=processing_config.get(
+                    "activity_summary_interval", 600
+                ),
+                language=language_config.get("default_language", "zh"),
+                enable_screenshot_deduplication=processing_config.get(
+                    "enable_screenshot_deduplication", True
+                ),
+                screenshot_similarity_threshold=processing_config.get(
+                    "screenshot_similarity_threshold", 0.90
+                ),
+                screenshot_hash_cache_size=processing_config.get(
+                    "screenshot_hash_cache_size", 10
+                ),
+                screenshot_hash_algorithms=processing_config.get(
+                    "screenshot_hash_algorithms", None
+                ),
+                enable_adaptive_threshold=processing_config.get(
+                    "enable_adaptive_threshold", True
+                ),
+            )
+
+        if self.action_agent is None:
+            from agents.action_agent import ActionAgent
+
+            self.action_agent = ActionAgent()
+
+        if self.raw_agent is None:
+            from agents.raw_agent import RawAgent
+
+            processing_config = self.config.get("processing", {})
+            self.raw_agent = RawAgent(
+                max_screenshots=processing_config.get(
+                    "max_screenshots_per_extraction", 20
+                )
+            )
+
+        if self.event_agent is None:
+            from agents.event_agent import EventAgent
+
+            processing_config = self.config.get("processing", {})
+            self.event_agent = EventAgent(
+                aggregation_interval=processing_config.get(
+                    "event_aggregation_interval", 600
+                ),
+                time_window_hours=processing_config.get("event_time_window_hours", 1),
+            )
+
+        if self.session_agent is None:
+            from agents.session_agent import SessionAgent
+
+            processing_config = self.config.get("processing", {})
+            self.session_agent = SessionAgent(
+                aggregation_interval=processing_config.get(
+                    "session_aggregation_interval", 1800
+                ),
+                time_window_min=processing_config.get("session_time_window_min", 30),
+                time_window_max=processing_config.get("session_time_window_max", 120),
+                min_event_duration_seconds=processing_config.get(
+                    "min_event_duration_seconds", 120
+                ),
+                min_event_actions=processing_config.get("min_event_actions", 2),
+                merge_time_gap_tolerance=processing_config.get(
+                    "merge_time_gap_tolerance", 300
+                ),
+                merge_similarity_threshold=processing_config.get(
+                    "merge_similarity_threshold", 0.6
+                ),
+            )
+
+        if self.todo_agent is None:
+            from agents.todo_agent import TodoAgent
+
+            self.todo_agent = TodoAgent()
+
+        if self.knowledge_agent is None:
+            from agents.knowledge_agent import KnowledgeAgent
+
+            self.knowledge_agent = KnowledgeAgent()
+
+        if self.diary_agent is None:
+            from agents.diary_agent import DiaryAgent
+
+            self.diary_agent = DiaryAgent()
+
+        if self.cleanup_agent is None:
+            from agents.cleanup_agent import CleanupAgent
+
+            processing_config = self.config.get("processing", {})
+            # Get image manager from processing pipeline if available
+            image_manager = None
+            if self.processing_pipeline:
+                image_manager = getattr(self.processing_pipeline, "image_manager", None)
+
+            self.cleanup_agent = CleanupAgent(
+                cleanup_interval=processing_config.get("cleanup_interval", 86400),  # 24h
+                retention_days=processing_config.get("retention_days", 30),  # 30 days
+                image_manager=image_manager,
+                image_cleanup_safety_window_minutes=processing_config.get(
+                    "image_cleanup_safety_window_minutes", 30
+                ),
+            )
+
+        # Link agents
+        if self.processing_pipeline:
+            # Link action_agent to pipeline for action extraction
+            if self.action_agent:
+                self.processing_pipeline.action_agent = self.action_agent
+            # Link raw_agent to pipeline for scene extraction
+            if self.raw_agent:
+                self.processing_pipeline.raw_agent = self.raw_agent
+            # Link knowledge_agent to pipeline for knowledge extraction
+            if self.knowledge_agent:
+                self.processing_pipeline.knowledge_agent = self.knowledge_agent
+            # Link todo_agent to pipeline for TODO extraction
+            if self.todo_agent:
+                self.processing_pipeline.todo_agent = self.todo_agent
+
+    def ensure_managers_initialized(self):
+        """Exposed initialization entry point"""
+        self._init_managers()
+
+    async def start(self) -> None:
+        """Start the entire pipeline"""
+        if self.is_running:
+            logger.warning("Coordinator is already running")
+            return
+
+        try:
+            self._set_state(mode="starting", error=None)
+            logger.info("Starting pipeline coordinator...")
+
+            # Initialize managers
+            active_model = self._ensure_active_model()
+            if not active_model:
+                # Keep limited mode when no model available, don't throw exception, allow frontend to continue rendering
+                logger.warning(
+                    "Pipeline coordinator not started: missing valid LLM model configuration"
+                )
+                self.is_running = False
+                self.processing_task = None
+                self.stats["start_time"] = None
+                self.stats["last_processing_time"] = None
+                return
+
+            logger.debug(
+                "Detected active model configuration: %s (%s)",
+                active_model.get("name") or active_model.get("model"),
+                active_model.get("provider"),
+            )
+            self._init_managers()
+
+            if not self.perception_manager:
+                logger.error("Perception manager initialization failed")
+                raise Exception("Perception manager initialization failed")
+
+            if not self.processing_pipeline:
+                logger.error("Processing pipeline initialization failed")
+                raise Exception("Processing pipeline initialization failed")
+
+            if not self.action_agent:
+                logger.error("Action agent initialization failed")
+                raise Exception("Action agent initialization failed")
+
+            if not self.event_agent:
+                logger.error("Event agent initialization failed")
+                raise Exception("Event agent initialization failed")
+
+            if not self.session_agent:
+                logger.error("Session agent initialization failed")
+                raise Exception("Session agent initialization failed")
+
+            if not self.todo_agent:
+                logger.error("Todo agent initialization failed")
+                raise Exception("Todo agent initialization failed")
+
+            if not self.knowledge_agent:
+                logger.error("Knowledge agent initialization failed")
+                raise Exception("Knowledge agent initialization failed")
+
+            if not self.diary_agent:
+                logger.error("Diary agent initialization failed")
+                raise Exception("Diary agent initialization failed")
+
+            if not self.cleanup_agent:
+                logger.error("Cleanup agent initialization failed")
+                raise Exception("Cleanup agent initialization failed")
+
+            # Start all components in parallel (they are independent)
+            logger.debug(
+                "Starting perception manager, processing pipeline, agents in parallel..."
+            )
+            start_time = datetime.now()
+
+            await asyncio.gather(
+                self.perception_manager.start(),
+                self.processing_pipeline.start(),
+                self.event_agent.start(),
+                self.session_agent.start(),
+                self.diary_agent.start(),
+                self.cleanup_agent.start(),
+            )
+
+            elapsed = (datetime.now() - start_time).total_seconds()
+            logger.debug(
+                f"All components started (took {elapsed:.2f}s)"
+            )
+
+            # Start scheduled processing loop
+            self.is_running = True
+            self._set_state(mode="running", error=None)
+            self.processing_task = asyncio.create_task(self._processing_loop())
+            self.stats["start_time"] = datetime.now()
+
+            logger.info(
+                f"Pipeline coordinator started, processing interval: {self.processing_interval} seconds"
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to start coordinator: {e}")
+            await self.stop()
+            raise
+
+    async def stop(self, *, quiet: bool = False) -> None:
+        """Stop the entire pipeline
+
+        Args:
+            quiet: When True, only log debug messages, avoid shutdown prompts in terminal.
+        """
+        if not self.is_running:
+            self._set_state(mode="stopped", error=None)
+            self.processing_task = None
+            return
+
+        try:
+            log = logger.debug if quiet else logger.info
+            log("Stopping pipeline coordinator...")
+
+            # Stop scheduled processing loop
+            self.is_running = False
+            if self.processing_task and not self.processing_task.done():
+                self.processing_task.cancel()
+                try:
+                    await self.processing_task
+                except asyncio.CancelledError:
+                    pass
+            self.processing_task = None
+
+            # Stop agents in reverse order of dependencies
+            if self.cleanup_agent:
+                await self.cleanup_agent.stop()
+                log("Cleanup agent stopped")
+
+            if self.diary_agent:
+                await self.diary_agent.stop()
+                log("Diary agent stopped")
+
+            if self.session_agent:
+                await self.session_agent.stop()
+                log("Session agent stopped")
+
+            if self.event_agent:
+                await self.event_agent.stop()
+                log("Event agent stopped")
+
+            # Note: ActionAgent has no start/stop methods (it's stateless)
+
+            # Stop processing pipeline
+            if self.processing_pipeline:
+                await self.processing_pipeline.stop()
+                log("Processing pipeline stopped")
+
+            # Stop perception manager
+            if self.perception_manager:
+                await self.perception_manager.stop()
+                log("Perception manager stopped")
+
+            log("Pipeline coordinator stopped")
+
+        except Exception as e:
+            logger.error(f"Failed to stop coordinator: {e}")
+        finally:
+            self._set_state(mode="stopped", error=None)
+            self.is_running = False
+            self.is_paused = False
+            self.processing_task = None
+            self._last_processed_timestamp = None
+
+    async def _processing_loop(self) -> None:
+        """Scheduled processing loop"""
+        try:
+            # First iteration has shorter delay, then use normal interval
+            first_iteration = True
+
+            while self.is_running:
+                # First iteration starts quickly (100ms), then use configured interval
+                wait_time = 0.1 if first_iteration else self.processing_interval
+                await asyncio.sleep(wait_time)
+
+                if not self.is_running:
+                    break
+
+                first_iteration = False
+
+                # Skip processing if paused (system sleep)
+                if self.is_paused:
+                    logger.debug("Coordinator paused, skipping processing cycle")
+                    continue
+
+                if not self.perception_manager:
+                    logger.error("Perception manager not initialized")
+                    raise Exception("Perception manager not initialized")
+
+                if not self.processing_pipeline:
+                    logger.error("Processing pipeline not initialized")
+                    raise Exception("Processing pipeline not initialized")
+
+                # Fetch records newer than the last processed timestamp to avoid duplicates
+                end_time = datetime.now()
+                if self._last_processed_timestamp is None:
+                    start_time = end_time - timedelta(seconds=self.processing_interval)
+                else:
+                    start_time = self._last_processed_timestamp
+
+                records = self.perception_manager.get_records_in_timeframe(
+                    start_time, end_time
+                )
+
+                if self._last_processed_timestamp is not None:
+                    records = [
+                        record
+                        for record in records
+                        if record.timestamp > self._last_processed_timestamp
+                    ]
+
+                if records:
+                    logger.debug(f"Starting to process {len(records)} records")
+
+                    # Process records
+                    result = await self.processing_pipeline.process_raw_records(records)
+
+                    # Update last processed timestamp so future cycles skip these records
+                    latest_record_time = max(
+                        (record.timestamp for record in records), default=None
+                    )
+                    if latest_record_time:
+                        self._last_processed_timestamp = latest_record_time
+
+                    # Update statistics
+                    self.stats["total_processing_cycles"] += 1
+                    self.stats["last_processing_time"] = datetime.now()
+
+                    logger.debug(
+                        f"Processing completed: {len(result.get('events', []))} events, {len(result.get('activities', []))} activities"
+                    )
+                else:
+                    logger.debug("No new records to process")
+
+        except asyncio.CancelledError:
+            logger.debug("Processing loop cancelled")
+        except Exception as e:
+            logger.error(f"Processing loop failed: {e}")
+
+    def get_stats(self) -> Dict[str, Any]:
+        """Get coordinator statistics"""
+        try:
+            self._refresh_active_model()
+            # Get statistics for each component
+            perception_stats = {}
+            processing_stats = {}
+            action_agent_stats = {}
+            event_agent_stats = {}
+            session_agent_stats = {}
+            todo_agent_stats = {}
+            knowledge_agent_stats = {}
+            diary_agent_stats = {}
+
+            if self.perception_manager:
+                perception_stats = self.perception_manager.get_stats()
+
+            if self.processing_pipeline:
+                processing_stats = self.processing_pipeline.get_stats()
+
+            if self.action_agent:
+                action_agent_stats = self.action_agent.get_stats()
+
+            if self.event_agent:
+                event_agent_stats = self.event_agent.get_stats()
+
+            if self.session_agent:
+                session_agent_stats = self.session_agent.get_stats()
+
+            if self.todo_agent:
+                todo_agent_stats = self.todo_agent.get_stats()
+
+            if self.knowledge_agent:
+                knowledge_agent_stats = self.knowledge_agent.get_stats()
+
+            if self.diary_agent:
+                diary_agent_stats = self.diary_agent.get_stats()
+
+            # Merge statistics
+            stats = {
+                "coordinator": {
+                    "is_running": self.is_running,
+                    "status": self.mode,
+                    "last_error": self.last_error,
+                    "active_model": self.active_model,
+                    "processing_interval": self.processing_interval,
+                    "window_size": self.window_size,
+                    "capture_interval": self.capture_interval,
+                    "start_time": self.stats["start_time"].isoformat()
+                    if self.stats["start_time"]
+                    else None,
+                    "total_processing_cycles": self.stats["total_processing_cycles"],
+                    "last_processing_time": self.stats[
+                        "last_processing_time"
+                    ].isoformat()
+                    if self.stats["last_processing_time"]
+                    else None,
+                },
+                "perception": perception_stats,
+                "processing": processing_stats,
+                "action_agent": action_agent_stats,
+                "event_agent": event_agent_stats,
+                "session_agent": session_agent_stats,
+                "todo_agent": todo_agent_stats,
+                "knowledge_agent": knowledge_agent_stats,
+                "diary_agent": diary_agent_stats,
+            }
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"Failed to get statistics: {e}")
+            return {"error": str(e)}
+
+
+def get_coordinator() -> PipelineCoordinator:
+    """Get global coordinator singleton"""
+    global _coordinator
+    if _coordinator is None:
+        config = get_config().load()
+
+        _coordinator = PipelineCoordinator(config)
+    return _coordinator

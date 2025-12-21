@@ -1,0 +1,126 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default-capability",
+  "description": "Capability for the main window",
+  "platforms": [
+    "macOS",
+    "windows",
+    "linux"
+  ],
+  "windows": [
+    "*"
+  ],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-create",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close",
+    "core:window:allow-hide",
+    "core:window:allow-center",
+    "core:window:allow-show",
+    "core:window:allow-maximize",
+    "core:window:allow-minimize",
+    "core:window:allow-destroy",
+    "core:window:allow-is-focused",
+    "core:window:allow-is-fullscreen",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-position",
+    "core:window:allow-scale-factor",
+    "core:window:allow-unminimize",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-set-size",
+    "core:window:allow-set-min-size",
+    "core:window:allow-unmaximize",
+    "core:window:allow-set-fullscreen",
+    "core:webview:allow-create-webview",
+    "core:webview:allow-create-webview-window",
+    "core:webview:allow-internal-toggle-devtools",
+    "core:webview:allow-set-webview-size",
+    "core:webview:allow-webview-size",
+    "pytauri:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        {
+          "url": "http://**"
+        },
+        {
+          "url": "https://**"
+        },
+        {
+          "url": "http://*:*"
+        },
+        {
+          "url": "https://*:*"
+        }
+      ]
+    },
+    "sql:default",
+    "sql:allow-execute",
+    {
+      "identifier": "sql:allow-load",
+      "allow": [
+        "sqlite:ido.db",
+        "sqlite:../ido.db",
+        "sqlite:../../ido.db",
+        "sqlite:/Users/**/iDO/ido.db",
+        "sqlite:/Users/**/iDO/src-tauri/ido.db"
+      ]
+    },
+    "notification:default",
+    "core:path:default",
+    "core:path:allow-resolve",
+    "core:path:allow-normalize",
+    "opener:allow-open-url",
+    "core:event:default",
+    "core:event:allow-emit",
+    "core:event:allow-emit-to",
+    "core:event:allow-listen",
+    "core:window:allow-set-resizable",
+    "core:window:allow-is-resizable",
+    "core:window:allow-set-ignore-cursor-events",
+    "core:window:allow-inner-size",
+    "core:window:allow-outer-size",
+    "core:app:default",
+    "core:app:allow-default-window-icon",
+    "core:app:allow-app-show",
+    "core:app:allow-app-hide",
+    "process:default",
+    "process:allow-exit",
+    "process:allow-restart",
+    "core:tray:default",
+    "core:tray:allow-new",
+    "core:tray:allow-set-icon",
+    "core:tray:allow-set-menu",
+    "core:tray:allow-set-tooltip",
+    "core:tray:allow-set-title",
+    "core:tray:allow-set-visible",
+    "core:tray:allow-set-temp-dir-path",
+    "core:tray:allow-set-icon-as-template",
+    "core:tray:allow-set-show-menu-on-left-click",
+    "core:menu:default",
+    "core:menu:allow-new",
+    "core:menu:allow-append",
+    "core:menu:allow-prepend",
+    "core:menu:allow-insert",
+    "core:menu:allow-remove",
+    "core:menu:allow-remove-at",
+    "core:menu:allow-items",
+    "core:menu:allow-get",
+    "core:menu:allow-popup",
+    "core:menu:allow-create-default",
+    "core:menu:allow-set-as-app-menu",
+    "core:menu:allow-set-as-window-menu",
+    "core:menu:allow-text",
+    "core:menu:allow-set-text",
+    "core:menu:allow-is-enabled",
+    "core:menu:allow-set-enabled",
+    "core:menu:allow-set-accelerator",
+    "core:menu:allow-set-as-windows-menu-for-nsapp",
+    "core:menu:allow-set-as-help-menu-for-nsapp",
+    "core:menu:allow-is-checked",
+    "core:menu:allow-set-checked",
+    "core:menu:allow-set-icon"
+  ]
+}

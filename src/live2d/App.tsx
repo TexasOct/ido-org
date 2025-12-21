@@ -1,0 +1,204 @@
+import { useCallback, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import * as PIXI from 'pixi.js'
+import { emitTo } from '@tauri-apps/api/event'
+import { getCurrentWebviewWindow } from '@tauri-apps/api/webviewWindow'
+import { writeText } from '@tauri-apps/plugin-clipboard-manager'
+
+import { updateLive2DSettings } from '@/lib/client/apiClient'
+import { LIVE2D_TOOLBAR_BASE_WIDTH } from '@/lib/live2d/constants'
+
+import { Live2DStatusOverlay } from './components/Live2DStatusOverlay'
+import { Live2DToolbar } from './components/Live2DToolbar'
+import { useLive2DDialog } from './hooks/useLive2DDialog'
+import { useLive2DModelManager } from './hooks/useLive2DModelManager'
+import { useDynamicDragRegion } from './hooks/useDragRegion'
+
+declare global {
+  interface Window {
+    PIXI: typeof PIXI
+  }
+}
+
+window.PIXI = PIXI
+
+export default function Live2DApp() {
+  const { t } = useTranslation()
+  const [isResizable, setIsResizable] = useState(false)
+  const [isDraggable, setIsDraggable] = useState(false)
+
+  // Use unified drag region hook for canvas - window drag is enabled when NOT in drag or resize mode
+  const canvasRef = useDynamicDragRegion<HTMLCanvasElement>(!isDraggable && !isResizable)
+
+  const {
+    modelRef,
+    currentModelUrlRef,
+    winSize,
+    status,
+    errorMessage,
+    availableModels,
+    notificationDuration,
+    loadModel,
+    setStatus,
+    setErrorMessage
+  } = useLive2DModelManager(canvasRef)
+
+  const { showDialog, dialogText, setDialog, hideDialog, handleChat } = useLive2DDialog(notificationDuration)
+  const toolbarScale = Math.min(Math.max(winSize.width / LIVE2D_TOOLBAR_BASE_WIDTH, 0.55), 1.1)
+
+  const handleToggleDrag = useCallback(() => {
+    const newState = !isDraggable
+    setIsDraggable(newState)
+
+    if (modelRef.current) {
+      modelRef.current.interactive = newState
+      if (newState) {
+        let dragData: any = null
+        const onDragStart = (event: any) => {
+          dragData = event.data
+        }
+        const onDragMove = () => {
+          if (dragData && modelRef.current) {
+            const newPosition = dragData.getLocalPosition(modelRef.current.parent)
+            modelRef.current.x = newPosition.x
+            modelRef.current.y = newPosition.y
+          }
+        }
+        const onDragEnd = () => {
+          dragData = null
+        }
+        modelRef.current.on('pointerdown', onDragStart)
+        modelRef.current.on('pointermove', onDragMove)
+        modelRef.current.on('pointerup', onDragEnd)
+        modelRef.current.on('pointerupoutside', onDragEnd)
+      } else {
+        modelRef.current.removeAllListeners('pointerdown')
+        modelRef.current.removeAllListeners('pointermove')
+        modelRef.current.removeAllListeners('pointerup')
+        modelRef.current.removeAllListeners('pointerupoutside')
+      }
+    }
+
+    setDialog(newState ? t('live2d.dragModeEnabled') : t('live2d.dragModeDisabled'))
+  }, [isDraggable, modelRef, setDialog, t])
+
+  const handleToggleResize = useCallback(async () => {
+    try {
+      const win = getCurrentWebviewWindow()
+      const newState = !isResizable
+      await win.setResizable(newState)
+      setIsResizable(newState)
+
+      setDialog(newState ? t('live2d.resizeModeEnabled') : t('live2d.resizeModeDisabled'))
+    } catch (error) {
+      console.error('[Live2D] Failed to toggle resize mode', error)
+      setDialog('Toggle failed: ' + (error instanceof Error ? error.message : String(error)))
+    }
+  }, [isResizable, setDialog, t])
+
+  const handleLockWindow = useCallback(async () => {
+    try {
+      const win = getCurrentWebviewWindow()
+      const ok = confirm('Enable cursor event passthrough?')
+      if (ok) {
+        await win.setIgnoreCursorEvents(true)
+        setDialog('Cursor event passthrough enabled')
+      }
+    } catch (error) {
+      console.warn('[Live2D] Failed to set cursor passthrough', error)
+    }
+  }, [setDialog])
+
+  const handleNextModel = useCallback(async () => {
+    if (availableModels.length === 0) return
+    const currentUrl = currentModelUrlRef.current
+    const currentIndex = availableModels.findIndex((item) => item.url === currentUrl)
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % availableModels.length : 0
+    const nextModel = availableModels[nextIndex]
+    if (!nextModel) return
+
+    setStatus('loading')
+    try {
+      await loadModel(nextModel.url)
+      await updateLive2DSettings({
+        selectedModelUrl: nextModel.url
+      })
+      await emitTo('main', 'live2d-model-updated', { modelUrl: nextModel.url })
+      setStatus('ready')
+    } catch (error) {
+      console.error('[Live2D] Failed to switch model', error)
+      setStatus('error')
+      setErrorMessage('Failed to switch model')
+    }
+  }, [availableModels, currentModelUrlRef, loadModel, setErrorMessage, setStatus])
+
+  const handleCopyModelUrl = useCallback(async () => {
+    if (!currentModelUrlRef.current) return
+    try {
+      await writeText(currentModelUrlRef.current)
+      await emitTo('main', 'live2d-toast', { message: 'Model URL copied' })
+    } catch (error) {
+      console.warn('[Live2D] Unable to copy model URL', error)
+    }
+  }, [currentModelUrlRef])
+
+  const handleHideWindow = useCallback(async () => {
+    try {
+      const win = getCurrentWebviewWindow()
+      await win.close()
+    } catch (error) {
+      console.warn('[Live2D] Failed to close window', error)
+    }
+  }, [])
+
+  const handleOpenDevTools = useCallback(async () => {
+    try {
+      const win = getCurrentWebviewWindow()
+      // Check if in development mode
+      if (import.meta.env.DEV) {
+        await (win as any).openDevTools()
+        setDialog('Developer tools opened')
+      } else {
+        setDialog('Available only in development mode')
+      }
+    } catch (error) {
+      console.warn('[Live2D] Failed to open developer tools', error)
+      setDialog('Failed to open')
+    }
+  }, [setDialog])
+
+  return (
+    <div
+      className={`live2d-view ${isResizable ? 'edit' : ''}`}
+      style={{ width: winSize.width, height: winSize.height }}>
+      <div className={`waifu ${isResizable ? 'edit-mode' : ''}`}>
+        <canvas ref={canvasRef} id="live2d" className="live2d" />
+
+        {showDialog && (
+          <div
+            className="waifu-tips show"
+            style={{ opacity: showDialog ? 1 : 0, top: '20px', right: '20px' }}
+            onClick={hideDialog}>
+            {dialogText}
+          </div>
+        )}
+
+        <Live2DToolbar
+          toolbarScale={toolbarScale}
+          isResizable={isResizable}
+          isDraggable={isDraggable}
+          onNextModel={handleNextModel}
+          onChat={handleChat}
+          onToggleDrag={handleToggleDrag}
+          onToggleResize={handleToggleResize}
+          onCopyModelUrl={handleCopyModelUrl}
+          onLockWindow={handleLockWindow}
+          onHideWindow={handleHideWindow}
+          onOpenDevTools={import.meta.env.DEV ? handleOpenDevTools : undefined}
+        />
+
+        <Live2DStatusOverlay status={status} errorMessage={errorMessage} />
+      </div>
+    </div>
+  )
+}

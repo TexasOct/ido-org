@@ -1,0 +1,137 @@
+import { useCallback, useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
+
+import { isTauri } from '@/lib/utils/tauri'
+import type { MonitorInfo, ScreenSetting } from '@/lib/types/settings'
+import { getScreenSettings, startMonitorsAutoRefresh, updateScreenSettings } from '@/lib/client/apiClient'
+import { useTauriEvent } from './useTauriEvents'
+import { toast } from 'sonner'
+
+interface MonitorsChangedPayload {
+  type: 'monitors_changed'
+  data?: {
+    monitors?: MonitorInfo[]
+    count?: number
+  }
+  timestamp?: string
+}
+
+function buildSettingsFromMonitors(monitors: MonitorInfo[], existing: ScreenSetting[]): ScreenSetting[] {
+  const existingMap = new Map<number, ScreenSetting>()
+  existing.forEach((item) => {
+    const idx = Number(item.monitor_index)
+    if (!Number.isNaN(idx)) {
+      existingMap.set(idx, item)
+    }
+  })
+
+  return monitors.map((monitor) => {
+    const prev = existingMap.get(monitor.index)
+    return {
+      monitor_index: monitor.index,
+      monitor_name: monitor.name,
+      is_enabled: prev ? prev.is_enabled : monitor.is_primary,
+      resolution: monitor.resolution,
+      is_primary: monitor.is_primary
+    }
+  })
+}
+
+function signatureForSettings(settings: ScreenSetting[]): string {
+  return JSON.stringify(
+    settings
+      .map((s) => ({
+        index: s.monitor_index,
+        enabled: s.is_enabled,
+        resolution: s.resolution,
+        primary: s.is_primary
+      }))
+      .sort((a, b) => a.index - b.index)
+  )
+}
+
+export function useMonitorAutoSync(intervalSeconds: number = 10) {
+  const { t } = useTranslation()
+  const isProcessingRef = useRef(false)
+  const lastSignatureRef = useRef<string | null>(null)
+  const isInitializedRef = useRef(false)
+
+  const handleMonitorsChanged = useCallback(
+    async (payload: MonitorsChangedPayload) => {
+      const monitors = payload?.data?.monitors
+      if (!Array.isArray(monitors) || monitors.length === 0) {
+        return
+      }
+
+      // Skip the very first event to avoid spurious changes at startup
+      if (!isInitializedRef.current) {
+        isInitializedRef.current = true
+        try {
+          const settingsResponse: any = await getScreenSettings()
+          const existingScreens = (settingsResponse?.data?.screens ?? []) as ScreenSetting[]
+          const nextSettings = buildSettingsFromMonitors(monitors, existingScreens)
+          lastSignatureRef.current = signatureForSettings(nextSettings)
+        } catch (error) {
+          console.error('[useMonitorAutoSync] Failed to initialize on first event', error)
+        }
+        return
+      }
+
+      if (isProcessingRef.current) {
+        return
+      }
+
+      isProcessingRef.current = true
+      try {
+        const settingsResponse: any = await getScreenSettings()
+        const existingScreens = (settingsResponse?.data?.screens ?? []) as ScreenSetting[]
+
+        const nextSettings = buildSettingsFromMonitors(monitors, existingScreens)
+        const nextSignature = signatureForSettings(nextSettings)
+
+        if (nextSignature === lastSignatureRef.current) {
+          return
+        }
+
+        const response: any = await updateScreenSettings({ screens: nextSettings as any[] })
+        if (response?.success) {
+          lastSignatureRef.current = nextSignature
+          toast.success(t('settings.monitorChangeDetected'))
+        } else if (response?.error) {
+          toast.error(`${t('settings.monitorUpdateFailed')}: ${response.error}`)
+        }
+      } catch (error) {
+        console.error('[useMonitorAutoSync] Failed to automatically update monitor settings', error)
+        toast.error(t('settings.monitorUpdateFailed'))
+      } finally {
+        isProcessingRef.current = false
+      }
+    },
+    [t]
+  )
+
+  useEffect(() => {
+    if (!isTauri()) {
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        await startMonitorsAutoRefresh({ intervalSeconds })
+        if (!cancelled) {
+          // Reset initialization state when starting auto-refresh
+          isInitializedRef.current = false
+        }
+      } catch (error) {
+        console.warn('[useMonitorAutoSync] Failed to start monitor auto refresh', error)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [intervalSeconds])
+
+  useTauriEvent<MonitorsChangedPayload>('monitors-changed', handleMonitorsChanged)
+}

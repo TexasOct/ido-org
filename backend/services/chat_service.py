@@ -1,0 +1,866 @@
+"""
+Chat service layer
+Handles business logic for conversation creation, message sending, streaming output, etc.
+
+This file adds explicit command-triggered Agent integration based on the original ChatService.
+When users send messages starting with `/task `, the backend will create and start Agent tasks (asynchronous execution),
+and immediately return task creation confirmation in the chat. Task execution and progress are handled by the existing agents.manager,
+the frontend can view task status and results through events or Agent API.
+"""
+
+import asyncio
+import base64
+import json
+import os
+import re
+import textwrap
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+# Agent task manager
+from agents.manager import task_manager
+from core.db import get_db
+from core.events import emit_chat_message_chunk
+from core.logger import get_logger
+from core.models import Conversation, Message, MessageRole
+from core.protocols import ChatDatabaseProtocol
+from llm.manager import get_llm_manager
+
+from .chat_stream_manager import get_stream_manager
+
+logger = get_logger(__name__)
+
+
+class ChatService:
+    """Chat service class."""
+
+    def __init__(self):
+        self.db: ChatDatabaseProtocol = get_db()
+        self.llm_manager = get_llm_manager()
+        self.stream_manager = get_stream_manager()
+
+    async def create_conversation(
+        self,
+        title: str,
+        related_activity_ids: Optional[List[str]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+        model_id: Optional[str] = None,
+    ) -> Conversation:
+        """
+        Create a new conversation.
+        """
+        conversation_id = str(uuid.uuid4())
+        now = datetime.now()
+
+        metadata = (metadata or {}).copy()
+        metadata.setdefault("autoTitle", True)
+        metadata.setdefault("titleFinalized", False)
+        metadata.setdefault("generatedTitleSource", "default")
+
+        conversation = Conversation(
+            id=conversation_id,
+            title=title,
+            created_at=now,
+            updated_at=now,
+            related_activity_ids=related_activity_ids or [],
+            metadata=metadata or {},
+            model_id=model_id,
+        )
+
+        # Persist to the database
+        self.db.conversations.insert(
+            conversation_id=conversation.id,
+            title=conversation.title,
+            related_activity_ids=conversation.related_activity_ids,
+            metadata=conversation.metadata,
+            model_id=model_id,
+        )
+
+        logger.info(f"✅ Conversation created: {conversation_id}, title: {title}")
+        return conversation
+
+    async def create_conversation_from_activities(
+        self, activity_ids: List[str]
+    ) -> Dict[str, Any]:
+        """
+        从活动创建对话，并生成上下文
+        """
+        if not activity_ids:
+            raise ValueError("活动 ID 列表不能为空")
+
+        # Fetch activity details from the database
+        activities = await self.db.activities.get_by_ids(activity_ids)
+
+        title = "关于活动的讨论"
+        if activities:
+            title = f"关于 {activities[0].get('title', '活动')} 的讨论"
+
+        conversation = await self.create_conversation(
+            title=title,
+            related_activity_ids=activity_ids,
+            metadata={
+                "autoTitle": False,
+                "titleFinalized": True,
+                "generatedTitleSource": "activity_seed",
+            },
+        )
+
+        context_prompt = self._generate_activity_context_prompt(activities)
+
+        await self.save_message(
+            conversation_id=conversation.id, role="system", content=context_prompt
+        )
+
+        return {
+            "conversationId": conversation.id,
+            "title": title,
+            "context": context_prompt,
+        }
+
+    async def _load_activity_context(self, activity_ids: List[str]) -> Optional[str]:
+        """
+        从数据库加载活动详情（包括事件摘要和详细内容）并生成上下文
+        """
+        if not activity_ids:
+            logger.warning('⚠️ activity_ids is empty; unable to load activity context')
+            return None
+
+        try:
+            logger.debug(f"🔍 Loading activity context for IDs: {activity_ids}")
+
+            activities = []
+            for activity_id in activity_ids:
+                # Use async repository method with await
+                activity_data = await self.db.activities.get_by_id(activity_id)
+                if activity_data:
+                    activities.append(activity_data)
+                    logger.debug(
+                        f"  ✅ 找到活动: {activity_data.get('title', 'Unknown')}"
+                    )
+                else:
+                    logger.warning(f"  ⚠️ Activity ID not found: {activity_id}")
+
+            if not activities:
+                logger.warning('⚠️ No activity data found')
+                return None
+
+            context_parts = [
+                "# 活动上下文\n\n用户正在讨论以下活动，请基于这些活动信息进行分析和回答：\n"
+            ]
+
+            for activity in activities:
+                title = activity.get("title", "未命名活动")
+                description = activity.get("description", "")
+                start_time = activity.get("start_time", "")
+                end_time = activity.get("end_time", "")
+
+                context_parts.append(f"\n## 活动：{title}\n")
+                context_parts.append(f"- **时间范围**: {start_time} - {end_time}\n")
+
+                if description:
+                    context_parts.append(f"- **活动总结**: {description}\n\n")
+
+                # Load event summaries (event_summaries)
+                source_event_ids_json = activity.get("source_event_ids", "[]")
+                source_event_ids = (
+                    json.loads(source_event_ids_json)
+                    if isinstance(source_event_ids_json, str)
+                    else source_event_ids_json or []
+                )
+
+                if source_event_ids:
+                    context_parts.append(f"### 关联事件详情（共 {len(source_event_ids)} 个事件）\n\n")
+
+                    # Load the first 10 event details
+                    for i, event_id in enumerate(source_event_ids[:10], 1):
+                        event = await self.db.events.get_by_id(event_id)
+                        if event:
+                            event_title = event.get("title", "")
+                            event_summary_text = event.get("summary", "")
+                            event_start = event.get("start_time", "")
+                            event_end = event.get("end_time", "")
+
+                            # Use the first 50 characters of the summary when no title is available
+                            display_title = event_title if event_title else (event_summary_text[:50] + "..." if len(event_summary_text) > 50 else event_summary_text) if event_summary_text else "未命名事件"
+
+                            context_parts.append(f"#### 事件 {i}: {display_title}\n")
+
+                            if event_start and event_end:
+                                context_parts.append(f"- 时间: {event_start} - {event_end}\n")
+
+                            # Append the event summary content
+                            if event_summary_text:
+                                context_parts.append(f"- 内容: {event_summary_text}\n")
+
+                            # Include the description when available
+                            event_description = event.get("description", "")
+                            if event_description:
+                                context_parts.append(f"- 详细描述: {event_description}\n")
+
+                            context_parts.append("\n")
+
+                    if len(source_event_ids) > 10:
+                        context_parts.append(f"... 还有 {len(source_event_ids) - 10} 个事件未展示\n\n")
+
+            context_parts.append("\n**请基于以上活动和事件的详细信息来回答用户的问题。**\n")
+
+            context_str = "".join(context_parts)
+            logger.debug(f"✅ Generated activity context, length: {len(context_str)} chars")
+            logger.debug(f"Context preview: {context_str[:300]}...")
+
+            return context_str
+
+        except Exception as e:
+            logger.error(f"❌ Failed to load activity context: {e}", exc_info=True)
+            return None
+
+    def _generate_activity_context_prompt(
+        self, activities: List[Dict[str, Any]]
+    ) -> str:
+        """
+        生成活动上下文 prompt
+        """
+        if not activities:
+            return "用户希望讨论最近的活动。"
+
+        prompt_parts = ["用户在以下时间段进行了这些活动：\n"]
+
+        for activity in activities:
+            start_time = activity.get("start_time", "未知")
+            end_time = activity.get("end_time", "未知")
+            title = activity.get("title", "未命名活动")
+            description = activity.get("description", "")
+
+            prompt_parts.append(f"\n[{start_time} - {end_time}] {title}")
+            if description:
+                prompt_parts.append(f"  {description}")
+
+        prompt_parts.append("\n\n请根据这些活动提供分析和建议。")
+
+        return "\n".join(prompt_parts)
+
+    async def save_message(
+        self,
+        conversation_id: str,
+        role: str,
+        content: str,
+        metadata: Optional[Dict[str, Any]] = None,
+        images: Optional[List[str]] = None,
+    ) -> Message:
+        """
+        保存消息到数据库
+        """
+        message_id = str(uuid.uuid4())
+        now = datetime.now()
+
+        message = Message(
+            id=message_id,
+            conversation_id=conversation_id,
+            role=MessageRole(role),
+            content=content,
+            timestamp=now,
+            metadata=metadata or {},
+            images=images or [],
+        )
+
+        # Persist to the database
+        self.db.messages.insert(
+            message_id=message.id,
+            conversation_id=message.conversation_id,
+            role=message.role.value,
+            content=message.content,
+            timestamp=message.timestamp.isoformat(),
+            metadata=message.metadata,
+            images=message.images,
+        )
+
+        # Update the conversation updated_at column
+        self.db.conversations.update(
+            conversation_id=conversation_id,
+            title=None,  # Leave the title unchanged
+        )
+
+        logger.debug(
+            f"保存消息: {message_id}, 对话: {conversation_id}, 角色: {role}, 图片数: {len(images or [])}"
+        )
+        return message
+
+    async def get_message_history(
+        self, conversation_id: str, limit: int = 20
+    ) -> List[Dict[str, Any]]:
+        """
+        获取对话的消息历史（用于LLM上下文）
+        支持多模态消息（文本+图片）
+        """
+        messages = self.db.messages.get_by_conversation(conversation_id, limit=limit)
+
+        llm_messages = []
+        for msg in messages:
+            # Check whether the message includes images
+            images_json = msg.get("images", "[]")
+            images = (
+                json.loads(images_json)
+                if isinstance(images_json, str)
+                else images_json or []
+            )
+
+            if images:
+                # Multimodal message format (OpenAI Vision API)
+                content_parts = []
+
+                # Append text content when available
+                if msg["content"]:
+                    content_parts.append({"type": "text", "text": msg["content"]})
+
+                # Append images
+                for image_data in images:
+                    content_parts.append(
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": image_data  # Base64 format: data:image/jpeg;base64,...
+                            },
+                        }
+                    )
+
+                llm_messages.append({"role": msg["role"], "content": content_parts})
+            else:
+                # Plain-text message
+                llm_messages.append({"role": msg["role"], "content": msg["content"]})
+
+        # When few messages exist (first conversation), inject activity context if available
+        if len(llm_messages) <= 2:
+            logger.debug(
+                f"🔍 检查对话 {conversation_id} 是否有关联活动（消息数: {len(llm_messages)}）"
+            )
+            conversation_data = self.db.conversations.get_by_id(conversation_id)
+
+            if not conversation_data:
+                logger.warning(f"⚠️ Conversation data not found: {conversation_id}")
+            elif not conversation_data.get("related_activity_ids"):
+                logger.debug(f"📝 Conversation {conversation_id} has no linked activities")
+            else:
+                activity_ids = (
+                    json.loads(conversation_data["related_activity_ids"])
+                    if isinstance(conversation_data["related_activity_ids"], str)
+                    else conversation_data["related_activity_ids"]
+                )
+
+                logger.debug(f"🔗 Conversation {conversation_id} linked to activities: {activity_ids}")
+
+                if activity_ids:
+                    activity_context = await self._load_activity_context(activity_ids)
+                    if activity_context:
+                        context_message = {
+                            "role": "system",
+                            "content": activity_context,
+                        }
+                        llm_messages.insert(0, context_message)
+                        logger.debug(
+                            f"✅ 为对话 {conversation_id} 注入活动上下文，活动数量: {len(activity_ids)}，上下文长度: {len(activity_context)}"
+                        )
+                    else:
+                        logger.warning('⚠️ Unable to generate activity context')
+
+        return llm_messages
+
+    # ===== Image processing helpers =====
+
+    async def _convert_image_paths_to_base64(
+        self, images: Optional[List[str]] = None
+    ) -> Optional[List[str]]:
+        """
+        Convert image file paths to base64 encoded strings.
+        Detects if an image is a file path or already base64/data URL encoded.
+
+        Args:
+            images: List of image strings (file paths or base64 data)
+
+        Returns:
+            List of base64 encoded image strings
+        """
+        if not images:
+            return images
+
+        processed_images = []
+        for image in images:
+            # Check if it's already a Data URL (starts with data:)
+            if image.startswith("data:"):
+                # Already a Data URL, use as-is
+                processed_images.append(image)
+                logger.debug("Image is already a Data URL, skipping conversion")
+            # Check if it looks like a file path (absolute or relative path on filesystem)
+            elif (
+                ("/" in image or "\\" in image)
+                and not image.startswith("http")
+                and os.path.exists(image)
+            ):
+                # Looks like a file path that exists, try to read and convert
+                try:
+                    with open(image, "rb") as f:
+                        file_data = f.read()
+                        base64_data = base64.b64encode(file_data).decode("utf-8")
+                        processed_images.append(base64_data)
+                        logger.debug(f"Converted image file to base64: {image}")
+                except Exception as e:
+                    logger.error(f"Failed to convert image file {image}: {e}")
+            else:
+                # Assume it's already base64 encoded (pure base64 string)
+                processed_images.append(image)
+                logger.debug("Image is already base64 encoded, using as-is")
+
+        return processed_images
+
+    # ===== Agent related helpers =====
+
+    def _detect_agent_command(self, user_message: Optional[str]) -> Optional[str]:
+        """
+        检测用户消息是否为显式 Agent 命令（以 '/task' 开头）。
+        返回任务描述（去掉前缀）或 None。
+        """
+        if not user_message:
+            return None
+        text = user_message.strip()
+        if text.startswith("/task"):
+            desc = text[len("/task") :].strip()
+            return desc if desc else None
+        return None
+
+    def _select_agent_type(self, task_description: str) -> str:
+        """
+        简单关键词规则来决定应该使用哪个 Agent。
+        以后可替换为更复杂的意图检测/分类逻辑。
+        """
+        low = (task_description or "").lower()
+        if any(k in low for k in ["写", "文章", "文档", "博客", "报告", "写作"]):
+            return "WritingAgent"
+        if any(k in low for k in ["研究", "收集", "资料", "调研", "调查"]):
+            return "ResearchAgent"
+        if any(k in low for k in ["分析", "统计", "数据", "趋势", "评估"]):
+            return "AnalysisAgent"
+        return "SimpleAgent"
+
+    async def _handle_agent_task_and_respond(
+        self, conversation_id: str, task_desc: str
+    ) -> str:
+        """
+        创建 Agent 任务并启动执行，返回要发送到 chat 的确认文本。
+        任务实际在后台执行，前端可通过 Agent API 或事件查看进度与结果。
+        """
+        agent_type = self._select_agent_type(task_desc)
+        try:
+            task = task_manager.create_task(agent_type, task_desc)
+            logger.debug(
+                f"Chat -> 创建 Agent 任务: {task.id} agent={agent_type} desc={task_desc}"
+            )
+
+            started = await task_manager.execute_task(task.id)
+            if started:
+                reply = (
+                    f"已创建任务 `{task.id}`，由 `{agent_type}` 执行。"
+                    " 任务已在后台启动，你可以在“任务”页面查看进度与结果。"
+                )
+            else:
+                reply = "任务创建/启动失败，请稍后重试。"
+        except Exception as e:
+            logger.error(f"Chat -> Failed to create/start Agent task: {e}", exc_info=True)
+            reply = f"任务创建失败：{str(e)[:200]}"
+
+        # Persist the assistant confirmation and stream it back at once
+        try:
+            await self.save_message(
+                conversation_id=conversation_id, role="assistant", content=reply
+            )
+        except Exception:
+            logger.exception('Failed to save task confirmation message')
+        try:
+            emit_chat_message_chunk(
+                conversation_id=conversation_id, chunk=reply, done=True
+            )
+        except Exception:
+            logger.exception('Failed to send task confirmation event')
+
+        return reply
+
+    async def send_message_stream(
+        self,
+        conversation_id: str,
+        user_message: str,
+        images: Optional[List[str]] = None,
+        model_id: Optional[str] = None,
+    ) -> str:
+        """
+        发送消息并流式返回响应
+
+        支持：
+        - 普通 LLM 聊天流（原有逻辑）
+        - 多模态消息（文本+图片）
+        - 显式 Agent 命令：消息以 `/task` 开头时，创建并启动 Agent 任务，立即返回确认（并保存为 assistant 消息）。
+
+        此方法会创建一个后台任务来处理流式输出，确保不同会话之间的流式处理互不干扰。
+        """
+        # Check whether this conversation already has an active streaming task
+        if self.stream_manager.is_streaming(conversation_id):
+            logger.warning(f"Conversation {conversation_id} already has an active streaming task")
+            # We could cancel the old task or reject the new request
+            # Here we cancel the old task and start a new one
+            self.stream_manager.cancel_stream(conversation_id)
+
+        # Spawn a background task to handle streaming
+        task = asyncio.create_task(
+            self._process_stream(conversation_id, user_message, images, model_id)
+        )
+
+        # Register the task with the stream manager
+        self.stream_manager.register_stream(conversation_id, task)
+
+        logger.info(f"✅ Streaming task started for conversation {conversation_id}")
+        return ""  # Return immediately; actual responses stream via events
+
+    async def _process_stream(
+        self,
+        conversation_id: str,
+        user_message: str,
+        images: Optional[List[str]] = None,
+        model_id: Optional[str] = None,
+    ) -> None:
+        """
+        处理流式输出的实际逻辑（在后台任务中运行）
+        """
+        # Timeout: 300 seconds (5 minutes)
+        TIMEOUT_SECONDS = 300
+
+        try:
+            # Process images by converting file paths to base64
+            processed_images = await self._convert_image_paths_to_base64(images)
+
+            # 1. Save the user message (including images)
+            await self.save_message(
+                conversation_id=conversation_id,
+                role="user",
+                content=user_message,
+                images=processed_images,
+            )
+            self._maybe_update_conversation_title(conversation_id)
+
+            # 1.a Detect explicit Agent commands (/task)
+            task_desc = self._detect_agent_command(user_message)
+            if task_desc is not None:
+                logger.debug(f"Detected /task command, description: {task_desc}")
+                await self._handle_agent_task_and_respond(conversation_id, task_desc)
+                return
+
+            # 2. Fetch history (may include activity context)
+            messages = await self.get_message_history(conversation_id)
+
+            logger.debug(f"📝 Conversation {conversation_id} message count: {len(messages)}")
+            if messages:
+                logger.debug(
+                    f"📝 第一条消息角色: {messages[0].get('role')}, 内容长度: {len(messages[0].get('content', ''))}"
+                )
+
+            # 2.5 If no system message exists, insert Markdown-format guidance
+            if not messages or messages[0].get("role") != "system":
+                system_prompt = {
+                    "role": "system",
+                    "content": (
+                        "你是一个专业的 AI 助手。请使用 Markdown 格式回复，注意：\n"
+                        "- 使用 `代码` 表示行内代码（单个反引号）\n"
+                        "- 使用 ```语言\\n代码块\\n``` 表示多行代码块（三个反引号）\n"
+                        "- 使用 **粗体** 表示强调\n"
+                        "- 使用 - 或 1. 表示列表\n"
+                        "- 不要在普通文本中使用反引号字符，除非是表示代码"
+                    ),
+                }
+                messages.insert(0, system_prompt)
+                logger.debug('📝 Adding Markdown-format guidance system message')
+
+            # Record the messages sent to the LLM
+            logger.debug(f"🤖 Messages sent to the LLM: {len(messages)}")
+            for i, msg in enumerate(messages):
+                logger.debug(
+                    f"  消息 {i}: role={msg.get('role')}, 内容长度={len(msg.get('content', ''))}"
+                )
+
+            # 3. Stream responses from the LLM (with timeout)
+            full_response = ""
+            try:
+                # timeout may not exist when python version < 3.11, but we use python 3.14
+                async with asyncio.timeout(TIMEOUT_SECONDS): # type: ignore[attr-defined]
+                    async for chunk in self.llm_manager.chat_completion_stream(messages, model_id=model_id):
+                        full_response += chunk
+
+                        # Send chunks to the frontend in real time
+                        emit_chat_message_chunk(
+                            conversation_id=conversation_id, chunk=chunk, done=False
+                        )
+            except asyncio.TimeoutError:
+                error_msg = "Request timeout, please check network connection"
+                logger.error(f"❌ LLM call timed out ({TIMEOUT_SECONDS}s): {conversation_id}")
+
+                # Emit the timeout error
+                await self.save_message(
+                    conversation_id=conversation_id,
+                    role="assistant",
+                    content=error_msg,
+                    metadata={"error": True, "error_type": "timeout"},
+                )
+                emit_chat_message_chunk(
+                    conversation_id=conversation_id, chunk="", done=True
+                )
+                return
+
+            # 4. Save the assistant response
+            assistant_message = await self.save_message(
+                conversation_id=conversation_id, role="assistant", content=full_response
+            )
+            self._maybe_update_conversation_title(conversation_id)
+
+            # 5. Emit the completion signal
+            emit_chat_message_chunk(
+                conversation_id=conversation_id,
+                chunk="",
+                done=True,
+                message_id=assistant_message.id,
+            )
+
+            logger.debug(
+                f"✅ 流式消息发送完成: {conversation_id}, 长度: {len(full_response)}"
+            )
+
+        except asyncio.CancelledError:
+            # Task canceled (e.g., user switched conversations and sent a new message)
+            logger.warning(f"⚠️ Streaming task canceled for conversation {conversation_id}")
+            emit_chat_message_chunk(
+                conversation_id=conversation_id,
+                chunk="[任务已取消]",
+                done=True
+            )
+            raise
+
+        except Exception as e:
+            logger.error(f"Streaming message failed: {e}", exc_info=True)
+
+            # Emit the error signal
+            error_message = f"[错误] {str(e)[:100]}"
+            emit_chat_message_chunk(
+                conversation_id=conversation_id, chunk=error_message, done=True
+            )
+
+            # Persist the error message
+            await self.save_message(
+                conversation_id=conversation_id,
+                role="assistant",
+                content=error_message,
+                metadata={"error": True},
+            )
+
+    async def get_conversations(
+        self, limit: int = 50, offset: int = 0
+    ) -> List[Conversation]:
+        """
+        获取对话列表
+        """
+        conversations_data = self.db.conversations.get_all(limit=limit, offset=offset)
+
+        conversations = []
+        for data in conversations_data:
+
+            # SQLite CURRENT_TIMESTAMP returns UTC; mark it explicitly
+            created_at = datetime.fromisoformat(data["created_at"]).replace(
+                tzinfo=timezone.utc
+            )
+            updated_at = datetime.fromisoformat(data["updated_at"]).replace(
+                tzinfo=timezone.utc
+            )
+
+            conversation = Conversation(
+                id=data["id"],
+                title=data["title"],
+                created_at=created_at,
+                updated_at=updated_at,
+                related_activity_ids=self._ensure_json_list(
+                    data.get("related_activity_ids")
+                ),
+                metadata=self._ensure_json_dict(data.get("metadata")),
+                model_id=data.get("model_id"),
+            )
+            conversations.append(conversation)
+
+        return conversations
+
+    async def get_messages(
+        self, conversation_id: str, limit: int = 100, offset: int = 0
+    ) -> List[Message]:
+        """
+        获取对话的消息列表
+        """
+        messages_data = self.db.messages.get_by_conversation(
+            conversation_id=conversation_id, limit=limit, offset=offset
+        )
+
+        messages = []
+        for data in messages_data:
+
+            # SQLite stores timestamps in UTC; treat them explicitly as UTC
+            timestamp = datetime.fromisoformat(data["timestamp"]).replace(
+                tzinfo=timezone.utc
+            )
+
+            message = Message(
+                id=data["id"],
+                conversation_id=data["conversation_id"],
+                role=MessageRole(data["role"]),
+                content=data["content"],
+                timestamp=timestamp,
+                metadata=self._ensure_json_dict(data.get("metadata")),
+                images=self._ensure_json_list(data.get("images")),
+            )
+            messages.append(message)
+
+        return messages
+
+    async def delete_conversation(self, conversation_id: str) -> bool:
+        """
+        删除对话（级联删除消息）
+        """
+        affected_rows = self.db.conversations.delete(conversation_id)
+        if affected_rows > 0:
+            logger.info(f"✅ Conversation deleted: {conversation_id}")
+            return True
+        else:
+            logger.warning(f"Failed to delete conversation (not found): {conversation_id}")
+            return False
+
+    # ===== Helper methods =====
+
+    def _ensure_json_list(self, value: Any) -> List[Any]:
+        """Ensure the given value is a list (decoded from JSON if needed)."""
+        return self._normalize_json_field(value, list)
+
+    def _ensure_json_dict(self, value: Any) -> Dict[str, Any]:
+        """Ensure the given value is a dict (decoded from JSON if needed)."""
+        return self._normalize_json_field(value, dict)
+
+    def _normalize_json_field(self, value: Any, expected_type: type) -> Any:
+        fallback = [] if expected_type is list else {}
+
+        if value is None:
+            return fallback
+
+        if expected_type is list and isinstance(value, tuple):
+            return list(value)
+
+        if isinstance(value, expected_type):
+            return value
+
+        if isinstance(value, str):
+            text = value.strip()
+            if not text:
+                return fallback
+            try:
+                parsed = json.loads(text)
+            except (json.JSONDecodeError, TypeError) as exc:
+                logger.warning(
+                    "Failed to parse %s JSON field: %s",
+                    expected_type.__name__,
+                    exc,
+                )
+                return fallback
+            if isinstance(parsed, expected_type):
+                return parsed
+
+        logger.warning(
+            "Unexpected value for %s JSON field: %r (using default)",
+            expected_type.__name__,
+            value,
+        )
+        return fallback
+
+    def _maybe_update_conversation_title(self, conversation_id: str) -> None:
+        """Auto-generate a title from the first message."""
+        try:
+            conversation = self.db.conversations.get_by_id(conversation_id)
+            if not conversation:
+                return
+
+            current_title = (conversation.get("title") or "").strip()
+            metadata_raw = conversation.get("metadata") or {}
+            if isinstance(metadata_raw, str):
+                try:
+                    metadata = json.loads(metadata_raw)
+                except json.JSONDecodeError:
+                    metadata = {}
+            else:
+                metadata = metadata_raw
+
+            if not metadata.get("autoTitle", True) or metadata.get("titleFinalized"):
+                return
+
+            messages = self.db.messages.get_by_conversation(conversation_id, limit=10, offset=0)
+
+            candidate_text = ""
+            for msg in messages:
+                text = (msg.get("content") or "").strip()
+                if not text:
+                    continue
+                if msg.get("role") == "user":
+                    candidate_text = text
+                    break
+
+            if not candidate_text:
+                for msg in messages:
+                    text = (msg.get("content") or "").strip()
+                    if text:
+                        candidate_text = text
+                        break
+
+            new_title = self._generate_title_from_text(candidate_text)
+            if not new_title or new_title == current_title:
+                return
+
+            metadata["autoTitle"] = False
+            metadata["titleFinalized"] = True
+            metadata["generatedTitleSource"] = "auto"
+            metadata["generatedTitlePreview"] = new_title
+            metadata["generatedTitleAt"] = datetime.now().isoformat()
+
+            self.db.conversations.update(
+                conversation_id=conversation_id, title=new_title, metadata=metadata
+            )
+
+            logger.debug(f"Auto-generated conversation title: {conversation_id} -> {new_title}")
+        except Exception as exc:
+            logger.warning(f"Failed to auto-update conversation title: {exc}")
+
+    def _generate_title_from_text(self, text: str, max_length: int = 28) -> str:
+        """Extract a short title from raw text."""
+        if not text:
+            return ""
+
+        cleaned = text.strip()
+        cleaned = re.sub(r"```[\s\S]*?```", " ", cleaned)
+        cleaned = re.sub(r"`([^`]+)`", r"\1", cleaned)
+        cleaned = re.sub(r"^[#>*\-\s]+", "", cleaned)
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" -_")
+
+        if not cleaned:
+            return ""
+
+        if len(cleaned) <= max_length:
+            return cleaned
+
+        return textwrap.shorten(cleaned, width=max_length, placeholder="…")
+
+
+# 全局服务实例
+_chat_service: Optional[ChatService] = None
+
+
+def get_chat_service() -> ChatService:
+    """Get the Chat service instance."""
+    global _chat_service
+    if _chat_service is None:
+        _chat_service = ChatService()
+    return _chat_service

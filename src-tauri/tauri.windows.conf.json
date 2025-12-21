@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "iDO",
+  "version": "0.3.2",
+  "identifier": "com.ido.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm run build",
+    "frontendDist": "../dist",
+    "features": ["pytauri/standalone"]
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "iDO",
+        "label": "iDO",
+        "url": "/",
+        "width": 1300,
+        "height": 1000,
+        "minWidth": 1020,
+        "minHeight": 600,
+        "fullscreen": false,
+        "resizable": true,
+        "decorations": false,
+        "shadow": false,
+        "transparent": true,
+        "center": true,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay"
+      }
+    ],
+    "security": {
+      "csp": null
+    },
+    "macOSPrivateApi": true
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+  }
+}

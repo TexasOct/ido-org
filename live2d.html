@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en" class="live2d-html">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="./vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iDO Live2D Companion</title>
+    <style>
+      html.live2d-html, body.live2d-body {
+        background: transparent !important;
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      /* Keep the window and canvas transparent, but do not force all children to be transparent */
+      #live2d-root {
+        background: transparent !important;
+      }
+      canvas#live2d {
+        background: transparent !important;
+      }
+    </style>
+    <script src="./assets/live2dcubismcore.min.js"></script>
+    <script src="./assets/live2d.min.js"></script>
+  </head>
+  <body class="live2d-body">
+    <div id="live2d-root"></div>
+    <script type="module" src="./src/live2d/main.tsx"></script>
+  </body>
+</html>

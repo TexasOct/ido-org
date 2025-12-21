@@ -1,0 +1,170 @@
+/**
+ * PendingTodoTimeline Component
+ *
+ * Timeline view for pending todos grouped by creation date.
+ * Features:
+ * - Sticky date headers (like activity timeline)
+ * - View details in dialog
+ * - Drag and drop support
+ * - Execute in chat and delete actions
+ */
+
+import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import { MessageSquare, Trash2, Eye, GripVertical } from 'lucide-react'
+import { Card } from '@/components/ui/card'
+import { cn } from '@/lib/utils'
+import type { InsightTodo, RecurrenceRule } from '@/lib/services/insights'
+import { TodosDetailDialog } from './TodosDetailDialog'
+import { beginTodoPointerDrag } from '@/lib/drag/todoDragController'
+import { StickyTimelineGroup } from '@/components/shared/StickyTimelineGroup'
+
+interface PendingTodoListProps {
+  todos: InsightTodo[]
+  onExecuteInChat: (todoId: string) => void
+  onDelete: (todoId: string) => void
+  onComplete?: (todo: InsightTodo) => void
+  onSchedule?: (
+    todo: InsightTodo,
+    scheduledDate: string,
+    scheduledTime?: string,
+    scheduledEndTime?: string,
+    recurrenceRule?: RecurrenceRule
+  ) => void
+}
+
+export function PendingTodoList({ todos, onExecuteInChat, onDelete, onComplete, onSchedule }: PendingTodoListProps) {
+  const { t } = useTranslation()
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null)
+  const [expandedTodoId, setExpandedTodoId] = useState<string | null>(null)
+
+  const handleViewDetails = (todo: InsightTodo) => {
+    setSelectedTodoId(todo.id)
+    setDialogOpen(true)
+    setExpandedTodoId(null) // Close the slide when opening dialog
+  }
+
+  // Get the selected todos for dialog (array of one item)
+  const dialogTodos = selectedTodoId ? todos.filter((t) => t.id === selectedTodoId) : []
+
+  const toggleCardExpand = (todoId: string) => {
+    setExpandedTodoId((prev) => (prev === todoId ? null : todoId))
+  }
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLElement>, todo: InsightTodo) => {
+    if ((e.target as HTMLElement).closest('button')) return
+    beginTodoPointerDrag(e, todo)
+  }
+
+  const renderTodoCard = (todo: InsightTodo) => {
+    const isExpanded = expandedTodoId === todo.id
+    return (
+      <div
+        data-todo-container
+        data-todo-id={todo.id}
+        className={cn(
+          'relative overflow-hidden transition-all duration-300',
+          isExpanded ? 'rounded-l-md' : 'rounded-md'
+        )}>
+        {/* Background Action Buttons */}
+        <div className="absolute inset-y-0 right-0 flex items-stretch">
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              handleViewDetails(todo)
+            }}
+            className={cn(
+              'bg-secondary text-secondary-foreground hover:bg-secondary/80 flex w-14 flex-col items-center justify-center gap-0.5 transition-all duration-300',
+              isExpanded ? 'translate-x-0 opacity-100 delay-[50ms]' : 'translate-x-4 opacity-0'
+            )}
+            title={t('insights.viewDetails', 'View details')}>
+            <Eye className="h-4 w-4" />
+            <span className="text-[10px] leading-none">{t('insights.viewDetails', 'View details')}</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onExecuteInChat(todo.id)
+            }}
+            className={cn(
+              'bg-primary text-primary-foreground hover:bg-primary/90 flex w-14 flex-col items-center justify-center gap-0.5 transition-all duration-300',
+              isExpanded ? 'translate-x-0 opacity-100 delay-100' : 'translate-x-4 opacity-0'
+            )}
+            title={t('insights.executeInChat', 'Execute in Agent')}>
+            <MessageSquare className="h-4 w-4" />
+            <span className="text-[10px] leading-none">{t('common.chat', 'Chat')}</span>
+          </button>
+          <button
+            onClick={(e) => {
+              e.stopPropagation()
+              onDelete(todo.id)
+              setExpandedTodoId(null)
+            }}
+            className={cn(
+              'bg-destructive text-destructive-foreground hover:bg-destructive/90 flex w-14 flex-col items-center justify-center gap-0.5 rounded-r-lg transition-all duration-300',
+              isExpanded ? 'translate-x-0 opacity-100 delay-150' : 'translate-x-4 opacity-0'
+            )}
+            title={t('insights.discard', 'Discard')}>
+            <Trash2 className="h-4 w-4" />
+            <span className="text-[10px] leading-none">{t('common.delete', 'Delete')}</span>
+          </button>
+        </div>
+
+        {/* Slideable Card */}
+        <div className={cn('relative transition-transform duration-300 ease-out', isExpanded && '-translate-x-42')}>
+          <Card
+            onPointerDown={(e) => handlePointerDown(e, todo)}
+            className={cn(
+              'border-l-primary gap-2 border-l-4 py-3 transition-all hover:shadow-md',
+              isExpanded ? 'rounded-r-none' : ''
+            )}>
+            <div className="flex min-h-9 items-center gap-1 px-2 py-1.5">
+              {/* Drag handle */}
+              <div
+                className={cn(
+                  'text-muted-foreground -ml-1 flex shrink-0 items-center rounded px-1 py-2 transition-colors',
+                  isExpanded ? 'pointer-events-none opacity-0' : 'hover:bg-accent hover:text-foreground cursor-move'
+                )}
+                aria-hidden={isExpanded}
+                title={t('insights.dragToSchedule', 'Drag to calendar to schedule')}>
+                <GripVertical className="h-5 w-5" />
+              </div>
+              {/* Todo content */}
+              <div className="flex-1 cursor-pointer" onClick={() => toggleCardExpand(todo.id)}>
+                <h4 className="text-sm leading-tight font-medium">{todo.title}</h4>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      <StickyTimelineGroup
+        items={todos}
+        getDate={(todo) => todo.createdAt}
+        renderItem={renderTodoCard}
+        emptyMessage={t('insights.noPendingTodos', 'No pending todos')}
+        countText={(count) => `${count} ${t('insights.todosCount', 'todos')}`}
+        headerClassName="px-5 pt-3 pb-1.5"
+        headerTitleClassName="text-sm font-semibold"
+        headerCountClassName="text-xs"
+        itemsContainerClassName="space-y-2 px-3 pb-3"
+      />
+
+      {/* Detail Dialog */}
+      <TodosDetailDialog
+        todos={dialogTodos}
+        open={dialogOpen}
+        onOpenChange={setDialogOpen}
+        onComplete={onComplete}
+        onDelete={(todo) => onDelete(todo.id)}
+        onUpdateSchedule={onSchedule}
+        onSendToChat={(todo) => onExecuteInChat(todo.id)}
+      />
+    </>
+  )
+}

@@ -1,0 +1,286 @@
+import {
+  getRecentEvents,
+  getKnowledgeList,
+  deleteKnowledge as deleteKnowledgeCommand,
+  getTodoList,
+  deleteTodo as deleteTodoCommand,
+  generateDiary as generateDiaryCommand,
+  deleteDiary as deleteDiaryCommand,
+  getPipelineStats,
+  getDiaryList,
+  scheduleTodo as scheduleTodoCommand,
+  unscheduleTodo as unscheduleTodoCommand,
+  getEventCountByDate as getEventCountByDateCommand,
+  getKnowledgeCountByDate as getKnowledgeCountByDateCommand
+} from '@/lib/client/apiClient'
+
+export interface InsightEvent {
+  id: string
+  title: string
+  description: string
+  keywords: string[]
+  timestamp?: string
+  createdAt?: string
+  screenshots: string[]
+}
+
+export interface InsightKnowledge {
+  id: string
+  title: string
+  description: string
+  keywords: string[]
+  mergedFromIds?: string[]
+  createdAt?: string
+  type?: 'combined' | 'original'
+  deleted?: boolean
+}
+
+export interface RecurrenceRule {
+  type: 'daily' | 'weekly' | 'monthly' | 'none'
+  interval?: number
+}
+
+export interface InsightTodo {
+  id: string
+  title: string
+  description: string
+  keywords: string[]
+  mergedFromIds?: string[]
+  createdAt?: string
+  completed?: boolean
+  deleted?: boolean
+  type?: 'combined' | 'original'
+  scheduledDate?: string // YYYY-MM-DD format for calendar scheduling
+  scheduledTime?: string // HH:MM format for time scheduling
+  scheduledEndTime?: string // HH:MM format for end time
+  recurrenceRule?: RecurrenceRule // Recurrence configuration
+}
+
+export interface InsightDiary {
+  id: string
+  date: string
+  content: string
+  sourceActivityIds: string[]
+  createdAt?: string
+}
+
+interface ApiResponse<T> {
+  success?: boolean
+  message?: string
+  data?: T
+}
+
+const ensureSuccess = <T>(response: ApiResponse<T>): T => {
+  if (!response?.success) {
+    throw new Error(response?.message ?? 'Unknown backend error')
+  }
+  if (!response.data) {
+    throw new Error('Backend returned empty data')
+  }
+  return response.data
+}
+
+const normalizeScreenshots = (value: unknown): string[] => {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  const images: string[] = []
+  for (const item of value) {
+    if (typeof item !== 'string') continue
+    const trimmed = item.trim()
+    if (!trimmed) continue
+    images.push(trimmed)
+    if (images.length >= 6) break
+  }
+  return images
+}
+
+const getScheduledDate = (value: Record<string, unknown>): string | undefined => {
+  const snakeCase = typeof value.scheduled_date === 'string' ? value.scheduled_date : undefined
+  const camelCase = typeof value.scheduledDate === 'string' ? value.scheduledDate : undefined
+  const raw = snakeCase || camelCase
+  return raw && raw.trim() ? raw : undefined
+}
+
+const getScheduledTime = (value: Record<string, unknown>): string | undefined => {
+  const snakeCase = typeof value.scheduled_time === 'string' ? value.scheduled_time : undefined
+  const camelCase = typeof value.scheduledTime === 'string' ? value.scheduledTime : undefined
+  const raw = snakeCase || camelCase
+  return raw && raw.trim() ? raw : undefined
+}
+
+const getScheduledEndTime = (value: Record<string, unknown>): string | undefined => {
+  const snakeCase = typeof value.scheduled_end_time === 'string' ? value.scheduled_end_time : undefined
+  const camelCase = typeof value.scheduledEndTime === 'string' ? value.scheduledEndTime : undefined
+  const raw = snakeCase || camelCase
+  return raw && raw.trim() ? raw : undefined
+}
+
+export async function fetchRecentEvents(limit: number, offset = 0): Promise<InsightEvent[]> {
+  const raw = await getRecentEvents({ limit, offset })
+  const data = ensureSuccess<{ events?: any[] }>(raw)
+  const events = Array.isArray(data.events) ? data.events : []
+  return events.map((event) => ({
+    id: String(event.id ?? ''),
+    title: String(event.title ?? ''),
+    description: String(event.description ?? ''),
+    keywords: Array.isArray(event.keywords) ? event.keywords : [],
+    timestamp: typeof event.timestamp === 'string' ? event.timestamp : undefined,
+    createdAt: typeof event.created_at === 'string' ? event.created_at : undefined,
+    screenshots: normalizeScreenshots(event.screenshots)
+  }))
+}
+
+export async function fetchKnowledgeList(): Promise<InsightKnowledge[]> {
+  const raw = await getKnowledgeList()
+  const data = ensureSuccess<{ knowledge?: any[] }>(raw)
+  const knowledge = Array.isArray(data.knowledge) ? data.knowledge : []
+  return knowledge.map((item) => ({
+    id: String(item.id ?? ''),
+    title: String(item.title ?? ''),
+    description: String(item.description ?? ''),
+    keywords: Array.isArray(item.keywords) ? item.keywords : [],
+    mergedFromIds: Array.isArray(item.merged_from_ids) ? item.merged_from_ids : [],
+    createdAt: typeof item.created_at === 'string' ? item.created_at : undefined,
+    type: item.type === 'combined' ? 'combined' : 'original',
+    deleted: Boolean(item.deleted)
+  }))
+}
+
+export async function deleteKnowledge(id: string) {
+  const raw = await deleteKnowledgeCommand({ id })
+  if (!raw?.success) {
+    throw new Error(String(raw?.message ?? 'Failed to delete knowledge'))
+  }
+}
+
+export async function fetchTodoList(includeCompleted = false): Promise<InsightTodo[]> {
+  const raw = await getTodoList({ includeCompleted })
+  const data = ensureSuccess<{ todos?: any[] }>(raw)
+  const todos = Array.isArray(data.todos) ? data.todos : []
+  return todos.map((todo) => ({
+    id: String(todo.id ?? ''),
+    title: String(todo.title ?? ''),
+    description: String(todo.description ?? ''),
+    keywords: Array.isArray(todo.keywords) ? todo.keywords : [],
+    mergedFromIds: Array.isArray(todo.merged_from_ids) ? todo.merged_from_ids : [],
+    createdAt: typeof todo.created_at === 'string' ? todo.created_at : undefined,
+    completed: Boolean(todo.completed),
+    deleted: Boolean(todo.deleted),
+    type: todo.type === 'combined' ? 'combined' : 'original',
+    scheduledDate: getScheduledDate(todo),
+    scheduledTime: getScheduledTime(todo),
+    scheduledEndTime: getScheduledEndTime(todo),
+    recurrenceRule: todo.recurrence_rule || undefined
+  }))
+}
+
+export async function deleteTodo(id: string) {
+  const raw = await deleteTodoCommand({ id })
+  if (!raw?.success) {
+    throw new Error(String(raw?.message ?? 'Failed to delete todo'))
+  }
+}
+
+export async function scheduleTodo(
+  todoId: string,
+  scheduledDate: string,
+  scheduledTime?: string,
+  scheduledEndTime?: string,
+  recurrenceRule?: RecurrenceRule
+): Promise<InsightTodo> {
+  const raw = await scheduleTodoCommand({
+    todoId,
+    scheduledDate,
+    scheduledTime: scheduledTime && scheduledTime.trim() ? scheduledTime : undefined,
+    scheduledEndTime: scheduledEndTime && scheduledEndTime.trim() ? scheduledEndTime : undefined,
+    recurrenceRule
+  } as any)
+  const data = ensureSuccess<any>(raw)
+  return {
+    id: String(data.id ?? ''),
+    title: String(data.title ?? ''),
+    description: String(data.description ?? ''),
+    keywords: Array.isArray(data.keywords) ? data.keywords : [],
+    mergedFromIds: Array.isArray(data.merged_from_ids) ? data.merged_from_ids : [],
+    createdAt: typeof data.created_at === 'string' ? data.created_at : undefined,
+    completed: Boolean(data.completed),
+    deleted: Boolean(data.deleted),
+    type: data.type === 'combined' ? 'combined' : 'original',
+    scheduledDate: getScheduledDate(data),
+    scheduledTime: getScheduledTime(data),
+    scheduledEndTime: getScheduledEndTime(data),
+    recurrenceRule: data.recurrence_rule || undefined
+  }
+}
+
+export async function unscheduleTodo(todoId: string): Promise<InsightTodo> {
+  const raw = await unscheduleTodoCommand({ todoId })
+  const data = ensureSuccess<any>(raw)
+  return {
+    id: String(data.id ?? ''),
+    title: String(data.title ?? ''),
+    description: String(data.description ?? ''),
+    keywords: Array.isArray(data.keywords) ? data.keywords : [],
+    mergedFromIds: Array.isArray(data.merged_from_ids) ? data.merged_from_ids : [],
+    createdAt: typeof data.created_at === 'string' ? data.created_at : undefined,
+    completed: Boolean(data.completed),
+    deleted: Boolean(data.deleted),
+    type: data.type === 'combined' ? 'combined' : 'original',
+    scheduledDate: getScheduledDate(data),
+    scheduledTime: getScheduledTime(data),
+    scheduledEndTime: getScheduledEndTime(data),
+    recurrenceRule: data.recurrence_rule || undefined
+  }
+}
+
+export async function generateDiary(date: string): Promise<InsightDiary> {
+  const raw = await generateDiaryCommand({ date })
+  const data = ensureSuccess<any>(raw)
+  return {
+    id: String(data.id ?? ''),
+    date: String(data.date ?? ''),
+    content: String(data.content ?? ''),
+    sourceActivityIds: Array.isArray(data.source_activity_ids) ? data.source_activity_ids : [],
+    createdAt: typeof data.created_at === 'string' ? data.created_at : undefined
+  }
+}
+
+export async function fetchDiaryList(limit: number): Promise<InsightDiary[]> {
+  const raw = await getDiaryList({ limit })
+  if (!raw?.success) {
+    throw new Error(raw?.message ?? 'Unknown backend error')
+  }
+  const diaries = Array.isArray(raw.data?.diaries) ? raw.data.diaries : []
+  return diaries.map((diary) => ({
+    id: String(diary.id ?? ''),
+    date: String(diary.date ?? ''),
+    content: String(diary.content ?? ''),
+    sourceActivityIds: Array.isArray(diary.sourceActivityIds) ? diary.sourceActivityIds : [],
+    createdAt: typeof diary.createdAt === 'string' ? diary.createdAt : undefined
+  }))
+}
+
+export async function deleteDiary(id: string) {
+  const raw = await deleteDiaryCommand({ id })
+  if (!raw?.success) {
+    throw new Error(String(raw?.message ?? 'Failed to delete diary'))
+  }
+}
+
+export async function fetchPipelineStats() {
+  const raw = await getPipelineStats()
+  return ensureSuccess(raw)
+}
+
+export async function fetchEventCountByDate(): Promise<Record<string, number>> {
+  const raw = await getEventCountByDateCommand()
+  const data = ensureSuccess<{ dateCountMap?: Record<string, number> }>(raw)
+  return data.dateCountMap || {}
+}
+
+export async function fetchKnowledgeCountByDate(): Promise<Record<string, number>> {
+  const raw = await getKnowledgeCountByDateCommand()
+  const data = ensureSuccess<{ dateCountMap?: Record<string, number> }>(raw)
+  return data.dateCountMap || {}
+}

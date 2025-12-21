@@ -1,0 +1,133 @@
+[project]
+name = "ido-app"
+version = "0.3.2"
+description = "Add your description here"
+requires-python = ">=3.14"
+dependencies = [
+  "pytauri == 0.8.*",
+  "pydantic == 2.*",
+  "anyio == 4.*",
+  # Packaging dependencies
+  "fastapi>=0.119.0",
+  "uvicorn[standard]>=0.38.0",
+  "httpx[http2]>=0.25.2",
+  "loguru>=0.7.2",
+  "pynput>=1.8",
+  "mss>=10.1",
+  "opencv-python-headless>=4.12.0.88",
+  "pillow>=12.0.0",
+  "python-dotenv>=1.0.0",
+  "pyyaml>=6.0.1",
+  "typer>=0.12.0",
+  "python-multipart>=0.0.6",
+  "toml>=0.10.2",
+  "pyobjc-framework-cocoa>=11.1; sys_platform == 'darwin'",
+  "pyobjc-framework-quartz>=11.1; sys_platform == 'darwin'",
+  "smolagents>=1.22.0",
+  "imagehash>=4.3.2",
+  "json-repair>=0.30.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  # Development dependencies
+  "black>=25.9.0",
+  "isort>=7.0.0",
+  "mypy>=1.18.0",
+  "pytest>=8.4.2",
+  "pytest-asyncio>=1.2.0",
+]
+
+[project.entry-points.pytauri]
+ext_mod = "ido_app.ext_mod"
+
+[build-system]
+requires = [
+  "setuptools >= 80",
+  "setuptools-rust >= 1.11, <2"
+]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages]
+# Cross-platform solution: Directly reference backend and src-tauri/python from root directory
+# This avoids symlink compatibility issues on Windows
+find = { where = [".", "src-tauri/python"], include = ["ido_backend*", "ido_app*", "backend*"] }
+
+[tool.setuptools.package-data]
+# Include configuration files and other data files
+ido_backend = [
+    "config/*.toml",
+    "config/*.yaml",
+    "perception/*.md",
+]
+ido_app = [
+    "*.toml",
+    "*.yaml",
+]
+
+backend = [
+    "config/*.toml",
+    "config/*.yaml",
+    "perception/*.md",
+]
+
+[tool.pyright]
+# Exclude directories that don't need analysis to avoid consuming too much memory
+# see: https://github.com/microsoft/pyright/blob/1.1.391/docs/configuration.md#environment-options
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/target",
+    "**/dist",
+    "**/.venv",
+    "**/.*",
+    "src-tauri/pyembed/",
+    "src-tauri/frontend/",
+]
+
+[tool.ty.src]
+# ty (basedpyright) configuration
+# see: https://docs.astral.sh/ty/configuration/
+
+# Included directories
+include = ["backend", "src-tauri/python"]
+
+# Excluded directories
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/target",
+    "**/dist",
+    "**/.venv",
+    "**/.*",
+    "src-tauri/pyembed/",
+    "src-tauri/frontend/",
+    "build/",
+    "backend/scripts/**",
+]
+
+[tool.ty.environment]
+# Python version
+python-version = "3.14"
+
+# Project root directories (for finding first-party modules)
+root = [".", "backend", "src-tauri/python"]
+
+# [tool.ty.rules]
+# # Disable possibly-missing-attribute warning
+# # Because we use a dynamic Repository pattern, type inference may not be accurate
+# possibly-missing-attribute = "ignore"
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.1a25",
+]
+# ty has only a small set of rules, most rule names differ from pyright
+# Reference: https://docs.astral.sh/ty/rules/
+#
+# Common ty rule examples:
+# possibly-unresolved-reference = "warn"
+# division-by-zero = "warn"
+#
+# Note: ty's rule set differs from pyright, many pyright rules don't exist in ty
+# If you need more fine-grained type checking, use pyright or basedpyright

@@ -1,0 +1,156 @@
+/**
+ * Conversation list component
+ */
+
+import { useState } from 'react'
+import { cn } from '@/lib/utils'
+import type { Conversation } from '@/lib/types/chat'
+import { MessageSquare, Plus, Trash2 } from 'lucide-react'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { useTranslation } from 'react-i18next'
+
+interface ConversationListProps {
+  conversations: Conversation[]
+  currentConversationId: string | null
+  onSelect: (conversationId: string) => void
+  onNew: () => void
+  onDelete: (conversationId: string) => void
+}
+
+export function ConversationList({
+  conversations,
+  currentConversationId,
+  onSelect,
+  onNew,
+  onDelete
+}: ConversationListProps) {
+  const { t } = useTranslation()
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [conversationToDelete, setConversationToDelete] = useState<string | null>(null)
+
+  const handleDeleteClick = (conversationId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setConversationToDelete(conversationId)
+    setDeleteDialogOpen(true)
+  }
+
+  const handleConfirmDelete = () => {
+    if (conversationToDelete) {
+      onDelete(conversationToDelete)
+      setDeleteDialogOpen(false)
+      setConversationToDelete(null)
+    }
+  }
+
+  const formatDate = (conversation: Conversation) => {
+    // Use updatedAt as the display time (last modified)
+    const updatedAt = new Date(conversation.updatedAt)
+    const now = new Date()
+
+    // Determine if the timestamp is today
+    const isSameDay =
+      updatedAt.getFullYear() === now.getFullYear() &&
+      updatedAt.getMonth() === now.getMonth() &&
+      updatedAt.getDate() === now.getDate()
+
+    if (isSameDay) {
+      // For today, show only the time (24h)
+      return new Intl.DateTimeFormat(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).format(updatedAt)
+    }
+
+    // For other days, show the date
+    return new Intl.DateTimeFormat(undefined, {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    }).format(updatedAt)
+  }
+
+  return (
+    <div className="flex h-full max-w-xs min-w-[200px] flex-col border-r">
+      {/* Conversation list */}
+      <div className="flex-1 overflow-y-auto">
+        {conversations.length === 0 ? (
+          <div className="text-muted-foreground flex h-full flex-col items-center justify-center px-4">
+            <MessageSquare className="mb-2 h-12 w-12 opacity-50" />
+            <p className="text-center text-sm">{t('chat.noConversations')}</p>
+          </div>
+        ) : (
+          <div className="space-y-1 p-2">
+            {/* New conversation button */}
+            <div
+              className="hover:bg-accent group flex cursor-pointer items-center gap-3 rounded-lg p-3 transition-all"
+              onClick={onNew}>
+              <div className="bg-primary flex h-8 w-8 shrink-0 items-center justify-center rounded-full">
+                <Plus className="h-4 w-4 text-white" />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <p className="font-medium">{t('chat.newConversation')}</p>
+              </div>
+            </div>
+
+            {conversations.map((conversation) => (
+              <div
+                key={conversation.id}
+                className={cn(
+                  'group hover:bg-accent relative flex cursor-pointer items-center gap-2 rounded-lg p-3 transition-colors',
+                  currentConversationId === conversation.id && 'bg-accent'
+                )}
+                onClick={() => onSelect(conversation.id)}>
+                <MessageSquare className="text-muted-foreground h-4 w-4 shrink-0" />
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <div className="flex items-center">
+                    <p className="flex-1 truncate text-sm font-medium">{conversation.title}</p>
+                    <span className="text-muted-foreground ml-2 shrink-0 text-right text-xs">
+                      {formatDate(conversation)}
+                    </span>
+                  </div>
+                </div>
+                {/* Delete button */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6 shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
+                  onClick={(e) => handleDeleteClick(conversation.id, e)}>
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Delete confirmation dialog */}
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('chat.deleteConversation')}</DialogTitle>
+            <DialogDescription>
+              {t('chat.confirmDelete')} {t('chat.deleteWarning')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
+              {t('common.cancel')}
+            </Button>
+            <Button variant="destructive" onClick={handleConfirmDelete}>
+              {t('common.delete')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
