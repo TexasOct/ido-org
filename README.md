@@ -203,9 +203,6 @@ We sincerely thank the following people for their active contributions.
   <a href="https://github.com/EvagelineFEI">
     <img src="https://github.com/EvagelineFEI.png" width="64" height="64" alt="EvagelineFEI" style="border-radius: 50%;" />
   </a>
-  <a href="https://github.com/happy-otter">
-    <img src="https://github.com/happy-otter.png" width="64" height="64" alt="happy-otter" style="border-radius: 50%;" />
-  </a>
 </div>
 
 ---
