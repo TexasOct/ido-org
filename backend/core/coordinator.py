@@ -505,6 +505,7 @@ class PipelineCoordinator:
         try:
             # First iteration has shorter delay, then use normal interval
             first_iteration = True
+            last_ttl_cleanup = datetime.now()  # Track last TTL cleanup time
 
             while self.is_running:
                 # First iteration starts quickly (100ms), then use configured interval
@@ -520,6 +521,18 @@ class PipelineCoordinator:
                 if self.is_paused:
                     logger.debug("Coordinator paused, skipping processing cycle")
                     continue
+
+                # Periodic TTL cleanup for memory-only images
+                now = datetime.now()
+                if (now - last_ttl_cleanup).total_seconds() >= self.processing_interval:
+                    try:
+                        if self.processing_pipeline and self.processing_pipeline.image_manager:
+                            evicted = self.processing_pipeline.image_manager.cleanup_expired_memory_images()
+                            if evicted > 0:
+                                logger.debug(f"TTL cleanup: evicted {evicted} expired memory-only images")
+                        last_ttl_cleanup = now
+                    except Exception as e:
+                        logger.error(f"TTL cleanup failed: {e}")
 
                 if not self.perception_manager:
                     logger.error("Perception manager not initialized")

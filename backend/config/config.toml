@@ -26,6 +26,12 @@ max_width = 1920
 max_height = 1080
 enable_phash = true
 
+# Memory-first storage configuration
+enable_memory_first = true          # Master switch
+memory_ttl_multiplier = 2.5         # TTL = processing_interval * multiplier
+memory_ttl_min = 60                 # Minimum TTL (seconds)
+memory_ttl_max = 120                # Maximum TTL (seconds)
+
 # Screenshot configuration
 [screenshot]
 # Smart capture - only capture the active monitor

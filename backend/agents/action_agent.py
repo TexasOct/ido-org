@@ -123,6 +123,8 @@ class ActionAgent:
 
             # Step 3: Save actions to database
             saved_count = 0
+            all_used_hashes = set()  # Track all hashes used across all actions
+
             for resolved in resolved_actions:
                 action_data = resolved["data"]
                 action_hashes = resolved["hashes"]
@@ -136,6 +138,12 @@ class ActionAgent:
                     image_indices, screenshot_records
                 )
 
+                # Persist screenshots to disk before saving action
+                self._persist_action_screenshots(action_hashes)
+
+                # Track used hashes
+                all_used_hashes.update(action_hashes)
+
                 # Save action to database
                 await self.db.actions.save(
                     action_id=action_id,
@@ -148,6 +156,9 @@ class ActionAgent:
 
                 saved_count += 1
                 self.stats["actions_saved"] += 1
+
+            # Step 4: Clean up unused screenshots from this batch (legacy flow)
+            self._cleanup_unused_batch_screenshots_legacy(screenshot_records, all_used_hashes)
 
             logger.debug(f"ActionAgent: Saved {saved_count} actions to database")
             return saved_count
@@ -384,6 +395,7 @@ class ActionAgent:
 
             # Step 3: Save actions to database
             saved_count = 0
+            all_used_hashes = set()  # Track all hashes used across all actions
 
             for resolved in resolved_actions:
                 action_data = resolved["data"]
@@ -395,6 +407,12 @@ class ActionAgent:
                 action_timestamp = self._calculate_action_timestamp_from_scenes(
                     scene_indices, scenes
                 )
+
+                # Persist screenshots to disk before saving action
+                self._persist_action_screenshots(action_hashes)
+
+                # Track used hashes
+                all_used_hashes.update(action_hashes)
 
                 # Save action to database
                 await self.db.actions.save(
@@ -409,12 +427,114 @@ class ActionAgent:
                 saved_count += 1
                 self.stats["actions_saved"] += 1
 
+            # Step 4: Clean up unused screenshots from this batch
+            self._cleanup_unused_batch_screenshots(scenes, all_used_hashes)
+
             logger.debug(f"ActionAgent: Saved {saved_count} actions to database")
             return saved_count
 
         except Exception as e:
             logger.error(f"ActionAgent: Failed to process actions from scenes: {e}", exc_info=True)
             return 0
+
+    def _persist_action_screenshots(self, screenshot_hashes: list[str]) -> None:
+        """Persist screenshots to disk when action is saved
+
+        This is the trigger point for memory-first persistence.
+
+        Args:
+            screenshot_hashes: List of screenshot hashes to persist
+        """
+        try:
+            if not screenshot_hashes:
+                return
+
+            logger.debug(
+                f"Persisting {len(screenshot_hashes)} screenshots for action"
+            )
+
+            results = self.image_manager.persist_images_batch(screenshot_hashes)
+
+            # Log warnings for failed persists
+            failed = [h for h, success in results.items() if not success]
+            if failed:
+                logger.warning(
+                    f"Failed to persist {len(failed)} screenshots (likely evicted from memory): "
+                    f"{[h[:8] for h in failed]}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to persist action screenshots: {e}", exc_info=True)
+
+    def _cleanup_unused_batch_screenshots(self, scenes: List[Dict[str, Any]], used_hashes: set[str]) -> None:
+        """Clean up screenshots from this batch that were not used in any action
+
+        This is called after all actions are saved to immediately free memory.
+
+        Args:
+            scenes: All scenes from this batch (contains all screenshot hashes)
+            used_hashes: Set of screenshot hashes that were used in actions
+        """
+        try:
+            # Collect all screenshot hashes from this batch
+            all_hashes = set()
+            for scene in scenes:
+                screenshot_hash = scene.get("screenshot_hash")
+                if screenshot_hash:
+                    all_hashes.add(screenshot_hash)
+
+            # Calculate unused hashes
+            unused_hashes = all_hashes - used_hashes
+
+            if not unused_hashes:
+                logger.debug("No unused screenshots to clean up in this batch")
+                return
+
+            # Clean up unused screenshots from memory
+            cleaned_count = self.image_manager.cleanup_batch_screenshots(list(unused_hashes))
+
+            if cleaned_count > 0:
+                logger.info(
+                    f"Batch cleanup: removed {cleaned_count}/{len(unused_hashes)} unused screenshots from memory "
+                    f"(total batch: {len(all_hashes)}, used: {len(used_hashes)})"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup unused batch screenshots: {e}", exc_info=True)
+
+    def _cleanup_unused_batch_screenshots_legacy(self, screenshot_records: List[RawRecord], used_hashes: set[str]) -> None:
+        """Clean up screenshots from this batch that were not used in any action (legacy flow)
+
+        Args:
+            screenshot_records: All screenshot records from this batch
+            used_hashes: Set of screenshot hashes that were used in actions
+        """
+        try:
+            # Collect all screenshot hashes from this batch
+            all_hashes = set()
+            for record in screenshot_records:
+                screenshot_hash = record.data.get("hash")
+                if screenshot_hash:
+                    all_hashes.add(screenshot_hash)
+
+            # Calculate unused hashes
+            unused_hashes = all_hashes - used_hashes
+
+            if not unused_hashes:
+                logger.debug("No unused screenshots to clean up in this batch (legacy)")
+                return
+
+            # Clean up unused screenshots from memory
+            cleaned_count = self.image_manager.cleanup_batch_screenshots(list(unused_hashes))
+
+            if cleaned_count > 0:
+                logger.info(
+                    f"Batch cleanup (legacy): removed {cleaned_count}/{len(unused_hashes)} unused screenshots from memory "
+                    f"(total batch: {len(all_hashes)}, used: {len(used_hashes)})"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup unused batch screenshots (legacy): {e}", exc_info=True)
 
     async def _extract_actions_from_scenes(
         self,
