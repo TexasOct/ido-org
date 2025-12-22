@@ -29,6 +29,8 @@ class ImageManager:
         base_dir: Optional[
             str
         ] = None,  # Screenshot storage root directory (override config)
+        enable_memory_first: bool = True,  # Enable memory-first storage strategy
+        memory_ttl: int = 75,  # TTL for memory-only images (seconds)
     ):
         # Try to read custom path from configuration
         try:
@@ -53,12 +55,19 @@ class ImageManager:
         self.scale_threshold = 1440  # Scale when any side exceeds this threshold
         self.scale_factor = 0.75  # When scaling is needed, scale to 75% of original size
 
+        # Memory-first storage configuration
+        self.enable_memory_first = enable_memory_first
+        self.memory_ttl = memory_ttl
+
         # Determine storage directory (supports user configuration)
         self.base_dir = self._resolve_base_dir(base_dir)
         self.thumbnails_dir = ensure_dir(self.base_dir / "thumbnails")
 
         # Memory cache: hash -> (base64_data, timestamp)
         self._memory_cache: OrderedDict[str, Tuple[str, datetime]] = OrderedDict()
+
+        # Image metadata: hash -> (timestamp, is_persisted)
+        self._image_metadata: dict[str, Tuple[datetime, bool]] = {}
 
         self._ensure_directories()
 
@@ -149,7 +158,7 @@ class ImageManager:
         return result
 
     def add_to_cache(self, img_hash: str, img_data: str) -> None:
-        """Add image to memory cache
+        """Add image to memory cache with TTL cleanup
 
         Args:
             img_hash: Image hash value
@@ -157,11 +166,26 @@ class ImageManager:
         """
         try:
             now = datetime.now()
+
+            # Perform TTL cleanup before adding new image
+            if self.enable_memory_first:
+                self.cleanup_expired_memory_images()
+
             self._memory_cache[img_hash] = (img_data, now)
 
-            # Remove oldest entries if cache is full
+            # LRU eviction if cache is full
             while len(self._memory_cache) > self.memory_cache_size:
-                self._memory_cache.popitem(last=False)  # Remove oldest
+                evicted_hash, _ = self._memory_cache.popitem(last=False)
+
+                # Clean metadata for evicted image
+                if evicted_hash in self._image_metadata:
+                    metadata = self._image_metadata[evicted_hash]
+                    if not metadata[1]:  # Not persisted
+                        logger.warning(
+                            f"LRU evicted memory-only image: {evicted_hash[:8]}... "
+                            f"(never persisted to disk)"
+                        )
+                    del self._image_metadata[evicted_hash]
 
             logger.debug(f"Added image to cache: {img_hash[:8]}...")
         except Exception as e:
@@ -231,7 +255,7 @@ class ImageManager:
             return img_bytes  # Return original if thumbnail creation fails
 
     def process_image_for_cache(self, img_hash: str, img_bytes: bytes) -> None:
-        """Process image: create thumbnail (memory cache disabled)
+        """Process image: create thumbnail and store based on memory-first strategy
 
         Args:
             img_hash: Image hash value
@@ -241,13 +265,169 @@ class ImageManager:
             # Create thumbnail
             thumbnail_bytes = self._create_thumbnail(img_bytes)
 
-            # Save thumbnail to disk
-            self.save_thumbnail(img_hash, thumbnail_bytes)
-
-            # Memory cache is deprecated; skip storing original image
-            logger.debug(f"Processed image (thumbnail only) for hash: {img_hash[:8]}...")
+            if self.enable_memory_first:
+                # Memory-first: store in memory only
+                thumbnail_base64 = base64.b64encode(thumbnail_bytes).decode("utf-8")
+                self.add_to_cache(img_hash, thumbnail_base64)
+                self._image_metadata[img_hash] = (datetime.now(), False)  # Mark as memory-only
+                logger.debug(f"Stored image in memory: {img_hash[:8]}...")
+            else:
+                # Legacy: immediate disk save
+                self.save_thumbnail(img_hash, thumbnail_bytes)
+                logger.debug(f"Processed image (thumbnail only) for hash: {img_hash[:8]}...")
         except Exception as e:
             logger.error(f"Failed to process image for cache: {e}")
+
+    def persist_image(self, img_hash: str) -> bool:
+        """Persist a memory-only image to disk
+
+        Args:
+            img_hash: Image hash to persist
+
+        Returns:
+            True if persisted successfully, False otherwise
+        """
+        try:
+            # Check if already persisted
+            metadata = self._image_metadata.get(img_hash)
+            if metadata and metadata[1]:  # is_persisted = True
+                logger.debug(f"Image already persisted: {img_hash[:8]}...")
+                return True
+
+            # Check if exists on disk already
+            thumbnail_path = self.thumbnails_dir / f"{img_hash}.jpg"
+            if thumbnail_path.exists():
+                # Update metadata
+                self._image_metadata[img_hash] = (datetime.now(), True)
+                logger.debug(f"Image already on disk: {img_hash[:8]}...")
+                return True
+
+            # Get from memory cache
+            img_data = self.get_from_cache(img_hash)
+            if not img_data:
+                logger.warning(
+                    f"Image not found in memory cache (likely evicted): {img_hash[:8]}... "
+                    f"Cannot persist to disk."
+                )
+                return False
+
+            # Decode and save to disk
+            img_bytes = base64.b64decode(img_data)
+            self.save_thumbnail(img_hash, img_bytes)
+
+            # Update metadata
+            self._image_metadata[img_hash] = (datetime.now(), True)
+
+            logger.debug(f"Persisted image to disk: {img_hash[:8]}...")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to persist image {img_hash[:8]}: {e}")
+            return False
+
+    def persist_images_batch(self, img_hashes: list[str]) -> dict[str, bool]:
+        """Persist multiple images in batch
+
+        Args:
+            img_hashes: List of image hashes to persist
+
+        Returns:
+            Dict mapping hash to success status
+        """
+        results = {}
+        success_count = 0
+
+        for img_hash in img_hashes:
+            success = self.persist_image(img_hash)
+            results[img_hash] = success
+            if success:
+                success_count += 1
+
+        logger.info(
+            f"Batch persist completed: {success_count}/{len(img_hashes)} images persisted"
+        )
+
+        return results
+
+    def cleanup_expired_memory_images(self) -> int:
+        """Clean up memory-only images that exceed TTL
+
+        Returns:
+            Number of images evicted
+        """
+        if not self.enable_memory_first:
+            return 0
+
+        try:
+            now = datetime.now()
+            cutoff_time = now - timedelta(seconds=self.memory_ttl)
+
+            evicted_count = 0
+            hashes_to_remove = []
+
+            for img_hash, (timestamp, is_persisted) in self._image_metadata.items():
+                # Only evict memory-only images
+                if not is_persisted and timestamp < cutoff_time:
+                    hashes_to_remove.append(img_hash)
+
+            # Remove from memory cache
+            for img_hash in hashes_to_remove:
+                if img_hash in self._memory_cache:
+                    del self._memory_cache[img_hash]
+                    evicted_count += 1
+
+                # Clean metadata
+                if img_hash in self._image_metadata:
+                    del self._image_metadata[img_hash]
+
+            if evicted_count > 0:
+                logger.info(
+                    f"TTL cleanup: evicted {evicted_count} memory-only images "
+                    f"(TTL={self.memory_ttl}s)"
+                )
+
+            return evicted_count
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup expired memory images: {e}")
+            return 0
+
+    def cleanup_batch_screenshots(self, img_hashes: list[str]) -> int:
+        """Clean up specific screenshots from memory (batch cleanup after action generation)
+
+        This is called after actions are saved to immediately free memory-only images
+        that were not used in the final actions.
+
+        Args:
+            img_hashes: List of image hashes to remove from memory
+
+        Returns:
+            Number of images removed
+        """
+        if not self.enable_memory_first:
+            return 0
+
+        try:
+            removed_count = 0
+
+            for img_hash in img_hashes:
+                # Check if this image is memory-only (not persisted)
+                metadata = self._image_metadata.get(img_hash)
+                if metadata and not metadata[1]:  # is_persisted = False
+                    # Remove from memory cache
+                    if img_hash in self._memory_cache:
+                        del self._memory_cache[img_hash]
+                        removed_count += 1
+
+                    # Remove from metadata
+                    if img_hash in self._image_metadata:
+                        del self._image_metadata[img_hash]
+
+            return removed_count
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup batch screenshots: {e}")
+            return 0
 
     def cleanup_old_files(self, max_age_hours: Optional[int] = None) -> int:
         """
@@ -367,6 +547,16 @@ class ImageManager:
                         disk_count += 1
                         disk_size += file_path.stat().st_size
 
+            # Memory-first stats
+            memory_only_count = 0
+            persisted_count = 0
+
+            for _, (_, is_persisted) in self._image_metadata.items():
+                if is_persisted:
+                    persisted_count += 1
+                else:
+                    memory_only_count += 1
+
             return {
                 "memory_cache_count": memory_count,
                 "memory_cache_limit": self.memory_cache_size,
@@ -377,6 +567,11 @@ class ImageManager:
                 "scale_threshold": self.scale_threshold,
                 "scale_factor": self.scale_factor,
                 "thumbnail_quality": self.thumbnail_quality,
+                # Memory-first stats
+                "memory_first_enabled": self.enable_memory_first,
+                "memory_ttl_seconds": self.memory_ttl,
+                "memory_only_images": memory_only_count,
+                "persisted_images_in_cache": persisted_count,
             }
 
         except Exception as e:
@@ -471,5 +666,35 @@ def get_image_manager() -> ImageManager:
 def init_image_manager(**kwargs) -> ImageManager:
     """Initialize image manager (can customize parameters)"""
     global _image_manager
+
+    # Calculate TTL from config if not provided
+    if "memory_ttl" not in kwargs or "enable_memory_first" not in kwargs:
+        try:
+            from config.loader import get_config
+
+            config = get_config().load()
+
+            enable_memory_first = config.get("image.enable_memory_first", True)
+            processing_interval = config.get("monitoring.processing_interval", 30)
+            multiplier = config.get("image.memory_ttl_multiplier", 2.5)
+            ttl_min = config.get("image.memory_ttl_min", 60)
+            ttl_max = config.get("image.memory_ttl_max", 120)
+
+            # Calculate dynamic TTL
+            calculated_ttl = int(processing_interval * multiplier)
+            memory_ttl = max(ttl_min, min(ttl_max, calculated_ttl))
+
+            if "enable_memory_first" not in kwargs:
+                kwargs["enable_memory_first"] = enable_memory_first
+            if "memory_ttl" not in kwargs:
+                kwargs["memory_ttl"] = memory_ttl
+
+            logger.info(
+                f"ImageManager: memory_first={enable_memory_first}, "
+                f"TTL={memory_ttl}s (processing_interval={processing_interval}s)"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to calculate memory TTL from config: {e}")
+
     _image_manager = ImageManager(**kwargs)
     return _image_manager
