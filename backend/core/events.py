@@ -626,3 +626,41 @@ def emit_pomodoro_processing_failed(
         f"Job: {job_id}, Error: {error}"
     )
     return _emit("pomodoro-processing-failed", payload)
+
+
+def emit_pomodoro_phase_switched(
+    session_id: str,
+    new_phase: str,
+    current_round: int,
+    total_rounds: int,
+    completed_rounds: int,
+) -> bool:
+    """
+    Send Pomodoro phase switch event to frontend
+
+    Emitted when session automatically switches between work/break phases.
+
+    Args:
+        session_id: Pomodoro session ID
+        new_phase: New phase ('work', 'break', or 'completed')
+        current_round: Current round number (1-based)
+        total_rounds: Total number of rounds
+        completed_rounds: Number of completed work rounds
+
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    payload = {
+        "session_id": session_id,
+        "new_phase": new_phase,
+        "current_round": current_round,
+        "total_rounds": total_rounds,
+        "completed_rounds": completed_rounds,
+    }
+
+    logger.debug(
+        f"[emit_pomodoro_phase_switched] Session: {session_id}, "
+        f"Phase: {new_phase}, Round: {current_round}/{total_rounds}, "
+        f"Completed: {completed_rounds}"
+    )
+    return _emit("pomodoro-phase-switched", payload)

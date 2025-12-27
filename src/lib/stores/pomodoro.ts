@@ -1,9 +1,9 @@
 import { create } from 'zustand'
 
 /**
- * Pomodoro Session State
+ * Pomodoro Session State with Rounds Support
  *
- * Manages Pomodoro timer state and interactions with the backend API
+ * Manages Pomodoro timer state with work/break phases and rounds
  */
 
 export interface PomodoroSession {
@@ -12,31 +12,71 @@ export interface PomodoroSession {
   startTime: string
   elapsedMinutes: number
   plannedDurationMinutes: number
+  associatedTodoId?: string | null
+  associatedTodoTitle?: string | null
+  // Rounds configuration
+  workDurationMinutes?: number
+  breakDurationMinutes?: number
+  totalRounds?: number
+  currentRound?: number
+  currentPhase?: string // 'work' | 'break' | 'completed'
+  phaseStartTime?: string | null
+  completedRounds?: number
+  remainingPhaseSeconds?: number | null
+}
+
+export interface PomodoroConfig {
+  workDurationMinutes: number
+  breakDurationMinutes: number
+  totalRounds: number
+}
+
+export interface PomodoroPreset {
+  id: string
+  name: string
+  description: string
+  workDurationMinutes: number
+  breakDurationMinutes: number
+  totalRounds: number
+  icon: string
 }
 
 export type PomodoroStatus = 'idle' | 'active' | 'ending' | 'processing'
+export type PomodoroPhase = 'work' | 'break' | 'completed'
 
 interface PomodoroState {
-  // State
+  // Session state
   status: PomodoroStatus
   session: PomodoroSession | null
   error: string | null
-  processingJobId: string | null
+
+  // Configuration state
+  config: PomodoroConfig
+  presets: PomodoroPreset[]
 
   // Actions
   setStatus: (status: PomodoroStatus) => void
   setSession: (session: PomodoroSession | null) => void
   setError: (error: string | null) => void
-  setProcessingJobId: (jobId: string | null) => void
+  setConfig: (config: PomodoroConfig) => void
+  setPresets: (presets: PomodoroPreset[]) => void
+  applyPreset: (presetId: string) => void
   reset: () => void
 }
 
-export const usePomodoroStore = create<PomodoroState>((set) => ({
+const DEFAULT_CONFIG: PomodoroConfig = {
+  workDurationMinutes: 25,
+  breakDurationMinutes: 5,
+  totalRounds: 2
+}
+
+export const usePomodoroStore = create<PomodoroState>((set, get) => ({
   // Initial state
   status: 'idle',
   session: null,
   error: null,
-  processingJobId: null,
+  config: DEFAULT_CONFIG,
+  presets: [],
 
   // Actions
   setStatus: (status) => set({ status }),
@@ -45,13 +85,27 @@ export const usePomodoroStore = create<PomodoroState>((set) => ({
 
   setError: (error) => set({ error }),
 
-  setProcessingJobId: (jobId) => set({ processingJobId: jobId }),
+  setConfig: (config) => set({ config }),
+
+  setPresets: (presets) => set({ presets }),
+
+  applyPreset: (presetId) => {
+    const preset = get().presets.find((p) => p.id === presetId)
+    if (preset) {
+      set({
+        config: {
+          workDurationMinutes: preset.workDurationMinutes,
+          breakDurationMinutes: preset.breakDurationMinutes,
+          totalRounds: preset.totalRounds
+        }
+      })
+    }
+  },
 
   reset: () =>
     set({
       status: 'idle',
       session: null,
-      error: null,
-      processingJobId: null
+      error: null
     })
 }))

@@ -166,6 +166,7 @@ export const en = {
   menu: {
     dashboard: 'Dashboard',
     activity: 'Activity',
+    pomodoro: 'Pomodoro',
     recentEvents: 'Recent Events',
     aiSummary: 'AI Summary',
     aiSummaryKnowledge: 'Knowledge',
@@ -937,7 +938,7 @@ export const en = {
     title: 'Pomodoro Timer',
     description: 'Focus Mode: Start a Pomodoro session to capture and analyze your focused work.',
     intent: {
-      label: 'What do you plan to work on?',
+      label: 'Or, enter your plan manually',
       placeholder: 'e.g., Write project documentation',
       hint: 'Describe your intention for this Pomodoro session',
       current: 'Current task'
@@ -945,6 +946,48 @@ export const en = {
     duration: {
       label: 'Duration (minutes)',
       hint: 'Recommended: 25 minutes'
+    },
+    config: {
+      title: 'Pomodoro Configuration',
+      description: 'Customize your focus session settings',
+      presets: 'Presets',
+      custom: 'Custom',
+      workDuration: 'Work Duration',
+      breakDuration: 'Break Duration',
+      totalRounds: 'Total Rounds',
+      rounds: 'rounds',
+      minutes: 'minutes',
+      summary: 'Summary',
+      totalTime: 'Total Time'
+    },
+    phase: {
+      work: 'Work',
+      break: 'Break',
+      completed: 'Completed'
+    },
+    countdown: {
+      remaining: 'Remaining',
+      round: 'Round',
+      workDuration: 'Work duration',
+      breakDuration: 'Break duration',
+      allRoundsComplete: 'All rounds completed!'
+    },
+    progress: {
+      roundIndicator: 'Round {{current}}/{{total}}',
+      roundsComplete: 'rounds completed',
+      completed: 'All Rounds Completed'
+    },
+    phaseSwitch: {
+      notification: 'Switched to {{phase}} - Round {{round}}/{{total}}'
+    },
+    todoAssociation: {
+      linkTodo: 'Link TODO',
+      unlinkTodo: 'Unlink TODO',
+      selectTodo: 'Select a TODO (optional)',
+      noTodoSelected: 'No TODO selected',
+      linkedTodo: 'Linked TODO',
+      optional: 'optional',
+      noTodos: 'No pending TODOs available'
     },
     start: 'Start Pomodoro',
     end: 'End Session',
@@ -954,8 +997,9 @@ export const en = {
       processing: 'Analyzing session data...'
     },
     started: 'Pomodoro session started',
-    ended: 'Session ended. Analyzing {{count}} records...',
+    ended: 'Session ended. Captured {{count}} records',
     processing: {
+      background: 'Analyzing activity data in background...',
       progress: 'Processed {{count}} records',
       complete: 'Analysis complete! Processed {{count}} records.',
       failed: 'Analysis failed: {{error}}'

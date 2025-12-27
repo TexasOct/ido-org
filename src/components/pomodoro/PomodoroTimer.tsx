@@ -1,70 +1,68 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Clock, Play, Square, Loader2 } from 'lucide-react'
+import { Clock, Play, Square, CheckSquare, ChevronDown, ChevronUp } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Progress } from '@/components/ui/progress'
 import { toast } from 'sonner'
 import { startPomodoro, endPomodoro, getPomodoroStatus } from '@/lib/client/apiClient'
 import { usePomodoroStore } from '@/lib/stores/pomodoro'
-import {
-  usePomodoroProcessingProgress,
-  usePomodoroProcessingComplete,
-  usePomodoroProcessingFailed
-} from '@/hooks/useTauriEvents'
+import { useInsightsStore } from '@/lib/stores/insights'
+import { usePomodoroPhaseSwitched } from '@/hooks/useTauriEvents'
+import { PomodoroCountdown } from './PomodoroCountdown'
+import { PomodoroProgress } from './PomodoroProgress'
+import { TodoAssociationSelector } from './TodoAssociationSelector'
+import { cn } from '@/lib/utils'
 
 export function PomodoroTimer() {
   const { t } = useTranslation()
-  const { status, session, error, setStatus, setSession, setError, setProcessingJobId, reset } = usePomodoroStore()
+  const { status, session, error, config, setStatus, setSession, setError, reset, setConfig } = usePomodoroStore()
+  const { todos } = useInsightsStore()
 
   const [userIntent, setUserIntent] = useState('')
-  const [durationMinutes, setDurationMinutes] = useState(25)
-  const [elapsedSeconds, setElapsedSeconds] = useState(0)
-  const [processingProgress, setProcessingProgress] = useState(0)
+  const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null)
 
-  // Timer effect - counts elapsed time when session is active
+  // Listen for phase switches (work → break or break → work)
+  usePomodoroPhaseSwitched((payload) => {
+    console.log('[Pomodoro] Phase switched:', payload)
+
+    // Refresh session data to get updated phase info
+    getPomodoroStatus()
+      .then((result) => {
+        if (result.success && result.data) {
+          setSession(result.data)
+
+          // Show toast notification
+          const phaseText = payload.new_phase === 'work' ? t('pomodoro.phase.work') : t('pomodoro.phase.break')
+          toast.info(
+            t('pomodoro.phaseSwitch.notification', {
+              phase: phaseText,
+              round: payload.current_round,
+              total: payload.total_rounds
+            }),
+            { duration: 3000 }
+          )
+        }
+      })
+      .catch((err) => {
+        console.error('[Pomodoro] Failed to refresh session after phase switch:', err)
+      })
+  })
+
+  // Auto-fill userIntent when todo is selected
   useEffect(() => {
-    if (status === 'active' && session) {
-      const timer = setInterval(() => {
-        const now = Date.now()
-        const start = new Date(session.startTime).getTime()
-        const elapsed = Math.floor((now - start) / 1000)
-        setElapsedSeconds(elapsed)
-      }, 1000)
-
-      return () => clearInterval(timer)
+    if (selectedTodoId) {
+      const selectedTodo = todos.find((todo) => todo.id === selectedTodoId)
+      if (selectedTodo) {
+        setUserIntent(selectedTodo.title)
+      }
+    } else {
+      // Clear userIntent when todo is deselected
+      setUserIntent('')
     }
-  }, [status, session])
-
-  // Event listeners for batch processing
-  usePomodoroProcessingProgress((payload) => {
-    console.log('[Pomodoro] Processing progress:', payload)
-    if (payload.job_id === usePomodoroStore.getState().processingJobId) {
-      setProcessingProgress(payload.processed)
-    }
-  })
-
-  usePomodoroProcessingComplete((payload) => {
-    console.log('[Pomodoro] Processing complete:', payload)
-    if (payload.job_id === usePomodoroStore.getState().processingJobId) {
-      toast.success(t('pomodoro.processing.complete', { count: payload.total_processed }))
-      reset()
-      setProcessingProgress(0)
-    }
-  })
-
-  usePomodoroProcessingFailed((payload) => {
-    console.log('[Pomodoro] Processing failed:', payload)
-    if (payload.job_id === usePomodoroStore.getState().processingJobId) {
-      toast.error(t('pomodoro.processing.failed', { error: payload.error }))
-      setError(payload.error)
-      setStatus('idle')
-      setProcessingProgress(0)
-    }
-  })
+  }, [selectedTodoId, todos])
 
   // Check for active session on mount
   useEffect(() => {
@@ -83,6 +81,56 @@ export function PomodoroTimer() {
     checkStatus()
   }, [setStatus, setSession])
 
+  // Poll for status updates when Pomodoro is active
+  useEffect(() => {
+    if (status !== 'active') {
+      return
+    }
+
+    // Immediately poll on mount/activation
+    const pollStatus = async () => {
+      try {
+        console.log('[PomodoroTimer] Polling status...')
+        const result = await getPomodoroStatus()
+        console.log('[PomodoroTimer] Poll result:', {
+          success: result.success,
+          hasData: !!result.data,
+          remainingPhaseSeconds: result.data?.remainingPhaseSeconds,
+          sessionId: result.data?.sessionId
+        })
+        if (result.success && result.data) {
+          setSession(result.data)
+        } else {
+          // Session ended on backend
+          console.log('[PomodoroTimer] Session ended, resetting')
+          reset()
+        }
+      } catch (err) {
+        console.error('[Pomodoro] Failed to poll status:', err)
+      }
+    }
+
+    pollStatus()
+
+    // Poll every 3 seconds to sync with backend
+    const pollInterval = setInterval(pollStatus, 3000)
+
+    // Re-sync when page becomes visible (fixes issue when switching tabs/pages)
+    const handleVisibilityChange = () => {
+      if (!document.hidden) {
+        console.log('[Pomodoro] Page visible, triggering immediate poll')
+        pollStatus()
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      clearInterval(pollInterval)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [status, setSession, reset])
+
   const handleStart = useCallback(async () => {
     if (!userIntent.trim()) {
       toast.error(t('pomodoro.error.noIntent'))
@@ -93,9 +141,16 @@ export function PomodoroTimer() {
     setError(null)
 
     try {
+      const totalDuration =
+        (config.workDurationMinutes + config.breakDurationMinutes) * config.totalRounds - config.breakDurationMinutes
+
       const result = await startPomodoro({
         userIntent: userIntent.trim(),
-        durationMinutes
+        durationMinutes: totalDuration,
+        workDurationMinutes: config.workDurationMinutes,
+        breakDurationMinutes: config.breakDurationMinutes,
+        totalRounds: config.totalRounds,
+        associatedTodoId: selectedTodoId || undefined
       })
 
       if (result.success && result.data) {
@@ -110,7 +165,7 @@ export function PomodoroTimer() {
       toast.error(t('pomodoro.error.startFailed', { error: err.message || String(err) }))
       setStatus('idle')
     }
-  }, [userIntent, durationMinutes, setStatus, setSession, setError, t])
+  }, [userIntent, config, selectedTodoId, setStatus, setSession, setError, t])
 
   const handleEnd = useCallback(async () => {
     if (!session) return
@@ -124,16 +179,23 @@ export function PomodoroTimer() {
       })
 
       if (result.success && result.data) {
-        const { processingJobId, rawRecordsCount, message } = result.data
+        const { rawRecordsCount, message } = result.data
 
         if (message) {
           toast.info(message)
-          reset()
         } else {
-          toast.success(t('pomodoro.ended', { count: rawRecordsCount }))
-          setStatus('processing')
-          setProcessingJobId(processingJobId || null)
+          // Show success message and immediately reset to idle
+          const recordCount = rawRecordsCount ?? 0
+          toast.success(t('pomodoro.ended', { count: recordCount }))
+
+          // If there are records, show background processing info
+          if (recordCount > 0) {
+            toast.info(t('pomodoro.processing.background'))
+          }
         }
+
+        // Immediately reset to idle state (don't wait for processing)
+        reset()
       } else {
         throw new Error(result.error || 'Failed to end Pomodoro')
       }
@@ -143,15 +205,26 @@ export function PomodoroTimer() {
       toast.error(t('pomodoro.error.endFailed', { error: err.message || String(err) }))
       setStatus('active') // Revert to active
     }
-  }, [session, setStatus, setError, setProcessingJobId, reset, t])
+  }, [session, setStatus, setError, reset, t])
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60)
-    const secs = seconds % 60
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
+  const adjustValue = useCallback(
+    (field: keyof typeof config, delta: number) => {
+      const currentValue = config[field]
+      let newValue = currentValue + delta
 
-  const progressPercent = session ? (elapsedSeconds / (session.plannedDurationMinutes * 60)) * 100 : 0
+      // Set limits based on field
+      if (field === 'totalRounds') {
+        newValue = Math.max(1, Math.min(8, newValue))
+      } else if (field === 'workDurationMinutes') {
+        newValue = Math.max(5, Math.min(120, newValue))
+      } else if (field === 'breakDurationMinutes') {
+        newValue = Math.max(1, Math.min(60, newValue))
+      }
+
+      setConfig({ ...config, [field]: newValue })
+    },
+    [config, setConfig]
+  )
 
   return (
     <Card className="w-full">
@@ -162,72 +235,167 @@ export function PomodoroTimer() {
         </CardTitle>
         <CardDescription>{t('pomodoro.description')}</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-6">
         {status === 'idle' && (
-          <>
-            <div className="space-y-2">
-              <Label htmlFor="user-intent">{t('pomodoro.intent.label')}</Label>
-              <Input
-                id="user-intent"
-                placeholder={t('pomodoro.intent.placeholder')}
-                value={userIntent}
-                onChange={(e) => setUserIntent(e.target.value)}
-                maxLength={200}
-              />
-              <p className="text-muted-foreground text-sm">{t('pomodoro.intent.hint')}</p>
+          <div className="space-y-6">
+            {/* TODO Association */}
+            <TodoAssociationSelector selectedTodoId={selectedTodoId} onTodoSelect={setSelectedTodoId} />
+
+            {/* Main Input - Only show when no todo is selected */}
+            {!selectedTodoId && (
+              <div className="space-y-3">
+                <Label htmlFor="user-intent" className="text-base font-semibold">
+                  {t('pomodoro.intent.label')}
+                </Label>
+                <Input
+                  id="user-intent"
+                  placeholder={t('pomodoro.intent.placeholder')}
+                  value={userIntent}
+                  onChange={(e) => setUserIntent(e.target.value)}
+                  maxLength={200}
+                  className="text-base"
+                />
+                <p className="text-muted-foreground text-sm">{t('pomodoro.intent.hint')}</p>
+              </div>
+            )}
+
+            {/* Circular Config Controls */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-center gap-8">
+                {/* Total Rounds */}
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative flex flex-col items-center">
+                    {/* Up Arrow */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-foreground h-10 w-10 transition-colors"
+                      onClick={() => adjustValue('totalRounds', 1)}>
+                      <ChevronUp className="h-6 w-6" />
+                    </Button>
+                    {/* Circle with number */}
+                    <div
+                      className={cn(
+                        'flex h-28 w-28 items-center justify-center rounded-full border-4 shadow-lg transition-all',
+                        'border-border bg-card hover:border-primary hover:shadow-xl'
+                      )}>
+                      <span className="text-5xl font-bold tabular-nums">{config.totalRounds}</span>
+                    </div>
+                    {/* Down Arrow */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-foreground h-10 w-10 transition-colors"
+                      onClick={() => adjustValue('totalRounds', -1)}>
+                      <ChevronDown className="h-6 w-6" />
+                    </Button>
+                  </div>
+                  <span className="text-muted-foreground text-sm font-medium">{t('pomodoro.config.totalRounds')}</span>
+                </div>
+
+                {/* Work Duration */}
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative flex flex-col items-center">
+                    {/* Up Arrow */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-foreground h-10 w-10 transition-colors"
+                      onClick={() => adjustValue('workDurationMinutes', 5)}>
+                      <ChevronUp className="h-6 w-6" />
+                    </Button>
+                    {/* Circle with number */}
+                    <div
+                      className={cn(
+                        'flex h-28 w-28 items-center justify-center rounded-full border-4 shadow-lg transition-all',
+                        'border-border bg-card hover:border-primary hover:shadow-xl'
+                      )}>
+                      <span className="text-5xl font-bold tabular-nums">{config.workDurationMinutes}</span>
+                    </div>
+                    {/* Down Arrow */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-foreground h-10 w-10 transition-colors"
+                      onClick={() => adjustValue('workDurationMinutes', -5)}>
+                      <ChevronDown className="h-6 w-6" />
+                    </Button>
+                  </div>
+                  <span className="text-muted-foreground text-sm font-medium">{t('pomodoro.config.workDuration')}</span>
+                </div>
+
+                {/* Break Duration */}
+                <div className="flex flex-col items-center gap-3">
+                  <div className="relative flex flex-col items-center">
+                    {/* Up Arrow */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-foreground h-10 w-10 transition-colors"
+                      onClick={() => adjustValue('breakDurationMinutes', 1)}>
+                      <ChevronUp className="h-6 w-6" />
+                    </Button>
+                    {/* Circle with number */}
+                    <div
+                      className={cn(
+                        'flex h-28 w-28 items-center justify-center rounded-full border-4 shadow-lg transition-all',
+                        'border-border bg-card hover:border-primary hover:shadow-xl'
+                      )}>
+                      <span className="text-5xl font-bold tabular-nums">{config.breakDurationMinutes}</span>
+                    </div>
+                    {/* Down Arrow */}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="text-muted-foreground hover:text-foreground h-10 w-10 transition-colors"
+                      onClick={() => adjustValue('breakDurationMinutes', -1)}>
+                      <ChevronDown className="h-6 w-6" />
+                    </Button>
+                  </div>
+                  <span className="text-muted-foreground text-sm font-medium">
+                    {t('pomodoro.config.breakDuration')}
+                  </span>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="duration">{t('pomodoro.duration.label')}</Label>
-              <Input
-                id="duration"
-                type="number"
-                min={1}
-                max={90}
-                value={durationMinutes}
-                onChange={(e) => setDurationMinutes(Math.max(1, Math.min(90, parseInt(e.target.value) || 25)))}
-              />
-              <p className="text-muted-foreground text-sm">{t('pomodoro.duration.hint')}</p>
-            </div>
-
+            {/* Start Button */}
             <Button onClick={handleStart} className="w-full" size="lg">
-              <Play className="mr-2 h-4 w-4" />
+              <Play className="mr-2 h-5 w-5" />
               {t('pomodoro.start')}
             </Button>
-          </>
+          </div>
         )}
 
         {status === 'active' && session && (
-          <>
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground text-sm">{t('pomodoro.status.active')}</span>
-                <span className="font-mono text-2xl font-bold">{formatTime(elapsedSeconds)}</span>
-              </div>
-              <Progress value={Math.min(progressPercent, 100)} className="h-2" />
-              <p className="text-muted-foreground text-sm">
-                {t('pomodoro.intent.current')}: {session.userIntent}
-              </p>
+          <div className="space-y-6">
+            {/* Session Info */}
+            <div className="text-center">
+              {session.associatedTodoTitle ? (
+                // Show associated TODO with icon
+                <div className="flex items-center justify-center gap-2 text-base font-medium">
+                  <CheckSquare className="text-primary h-5 w-5" />
+                  <span>{session.associatedTodoTitle}</span>
+                </div>
+              ) : (
+                // Show user intent directly if no TODO associated
+                <p className="text-base font-medium">{session.userIntent}</p>
+              )}
             </div>
 
+            {/* Countdown */}
+            <PomodoroCountdown />
+
+            {/* Progress */}
+            <div className="px-4">
+              <PomodoroProgress />
+            </div>
+
+            {/* End Button */}
             <Button onClick={handleEnd} variant="destructive" className="w-full" size="lg">
-              <Square className="mr-2 h-4 w-4" />
+              <Square className="mr-2 h-5 w-5" />
               {t('pomodoro.end')}
             </Button>
-          </>
-        )}
-
-        {(status === 'ending' || status === 'processing') && (
-          <div className="space-y-2 text-center">
-            <Loader2 className="mx-auto h-8 w-8 animate-spin" />
-            <p className="text-muted-foreground text-sm">
-              {status === 'ending' ? t('pomodoro.status.ending') : t('pomodoro.status.processing')}
-            </p>
-            {status === 'processing' && processingProgress > 0 && (
-              <p className="text-muted-foreground text-xs">
-                {t('pomodoro.processing.progress', { count: processingProgress })}
-              </p>
-            )}
           </div>
         )}
 

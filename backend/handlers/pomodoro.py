@@ -8,6 +8,7 @@ Endpoints:
 """
 
 from datetime import datetime
+from typing import Optional
 
 from core.coordinator import get_coordinator
 from core.logger import get_logger
@@ -26,10 +27,14 @@ logger = get_logger(__name__)
 
 
 class StartPomodoroRequest(BaseModel):
-    """Start Pomodoro request"""
+    """Start Pomodoro request with rounds configuration"""
 
     user_intent: str
-    duration_minutes: int = 25
+    duration_minutes: int = 25  # Legacy field, calculated from rounds
+    associated_todo_id: Optional[str] = None  # Optional TODO association
+    work_duration_minutes: int = 25  # Duration of work phase
+    break_duration_minutes: int = 5  # Duration of break phase
+    total_rounds: int = 4  # Number of work rounds
 
 
 class EndPomodoroRequest(BaseModel):
@@ -72,6 +77,10 @@ async def start_pomodoro(body: StartPomodoroRequest) -> StartPomodoroResponse:
         session_id = await coordinator.pomodoro_manager.start_pomodoro(
             user_intent=body.user_intent,
             duration_minutes=body.duration_minutes,
+            associated_todo_id=body.associated_todo_id,
+            work_duration_minutes=body.work_duration_minutes,
+            break_duration_minutes=body.break_duration_minutes,
+            total_rounds=body.total_rounds,
         )
 
         # Get session info
@@ -98,6 +107,16 @@ async def start_pomodoro(body: StartPomodoroRequest) -> StartPomodoroResponse:
                 start_time=session_info["start_time"],
                 elapsed_minutes=session_info["elapsed_minutes"],
                 planned_duration_minutes=session_info["planned_duration_minutes"],
+                associated_todo_id=session_info.get("associated_todo_id"),
+                associated_todo_title=session_info.get("associated_todo_title"),
+                work_duration_minutes=session_info.get("work_duration_minutes", 25),
+                break_duration_minutes=session_info.get("break_duration_minutes", 5),
+                total_rounds=session_info.get("total_rounds", 4),
+                current_round=session_info.get("current_round", 1),
+                current_phase=session_info.get("current_phase", "work"),
+                phase_start_time=session_info.get("phase_start_time"),
+                completed_rounds=session_info.get("completed_rounds", 0),
+                remaining_phase_seconds=session_info.get("remaining_phase_seconds"),
             ),
             timestamp=datetime.now().isoformat(),
         )
@@ -229,6 +248,17 @@ async def get_pomodoro_status() -> GetPomodoroStatusResponse:
                 start_time=session_info["start_time"],
                 elapsed_minutes=session_info["elapsed_minutes"],
                 planned_duration_minutes=session_info["planned_duration_minutes"],
+                # Add all missing fields for complete session state
+                associated_todo_id=session_info.get("associated_todo_id"),
+                associated_todo_title=session_info.get("associated_todo_title"),
+                work_duration_minutes=session_info.get("work_duration_minutes", 25),
+                break_duration_minutes=session_info.get("break_duration_minutes", 5),
+                total_rounds=session_info.get("total_rounds", 4),
+                current_round=session_info.get("current_round", 1),
+                current_phase=session_info.get("current_phase", "work"),
+                phase_start_time=session_info.get("phase_start_time"),
+                completed_rounds=session_info.get("completed_rounds", 0),
+                remaining_phase_seconds=session_info.get("remaining_phase_seconds"),
             ),
             timestamp=datetime.now().isoformat(),
         )

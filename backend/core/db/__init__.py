@@ -16,6 +16,7 @@ from core.sqls import queries
 # Three-layer architecture repositories
 from .actions import ActionsRepository
 from .activities import ActivitiesRepository
+from .activity_ratings import ActivityRatingsRepository
 from .base import BaseRepository
 from .conversations import ConversationsRepository, MessagesRepository
 from .diaries import DiariesRepository
@@ -74,6 +75,9 @@ class DatabaseManager:
         # Pomodoro feature repositories
         self.pomodoro_sessions = PomodoroSessionsRepository(db_path)
         self.raw_records = RawRecordsRepository(db_path)
+
+        # Activity ratings repository
+        self.activity_ratings = ActivityRatingsRepository(db_path)
 
         logger.debug(f"✓ DatabaseManager initialized with path: {db_path}")
 
@@ -345,6 +349,7 @@ __all__ = [
     "SessionPreferencesRepository",
     "PomodoroSessionsRepository",
     "RawRecordsRepository",
+    "ActivityRatingsRepository",
     # Unified manager
     "DatabaseManager",
     # Global access functions

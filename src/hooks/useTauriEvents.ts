@@ -343,3 +343,18 @@ export interface PomodoroProcessingFailedPayload {
 export function usePomodoroProcessingFailed(onFailed: (payload: PomodoroProcessingFailedPayload) => void) {
   useTauriEvent<PomodoroProcessingFailedPayload>('pomodoro-processing-failed', onFailed)
 }
+
+/**
+ * Pomodoro phase switched hook (fires when switching between work/break phases)
+ */
+export interface PomodoroPhaseSwitchedPayload {
+  session_id: string
+  new_phase: string
+  current_round: number
+  total_rounds: number
+  completed_rounds: number
+}
+
+export function usePomodoroPhaseSwitched(onSwitch: (payload: PomodoroPhaseSwitchedPayload) => void) {
+  useTauriEvent<PomodoroPhaseSwitchedPayload>('pomodoro-phase-switched', onSwitch)
+}
