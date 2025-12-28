@@ -272,7 +272,7 @@ class ImageManager:
             return img_bytes  # Return original if thumbnail creation fails
 
     def process_image_for_cache(self, img_hash: str, img_bytes: bytes) -> None:
-        """Process image: create thumbnail and store based on memory-first strategy
+        """Process image: create thumbnail and store both in memory and disk for reliability
 
         Args:
             img_hash: Image hash value
@@ -281,17 +281,20 @@ class ImageManager:
         try:
             # Create thumbnail
             thumbnail_bytes = self._create_thumbnail(img_bytes)
+            thumbnail_base64 = base64.b64encode(thumbnail_bytes).decode("utf-8")
 
-            if self.enable_memory_first:
-                # Memory-first: store in memory only
-                thumbnail_base64 = base64.b64encode(thumbnail_bytes).decode("utf-8")
-                self.add_to_cache(img_hash, thumbnail_base64)
-                self._image_metadata[img_hash] = (datetime.now(), False)  # Mark as memory-only
-                logger.debug(f"Stored image in memory: {img_hash[:8]}...")
-            else:
-                # Legacy: immediate disk save
-                self.save_thumbnail(img_hash, thumbnail_bytes)
-                logger.debug(f"Processed image (thumbnail only) for hash: {img_hash[:8]}...")
+            # Always store in memory for fast access
+            self.add_to_cache(img_hash, thumbnail_base64)
+
+            # Always persist to disk immediately to prevent image loss
+            # This ensures images are never lost even if:
+            # 1. Memory cache is full and LRU evicts them
+            # 2. TTL cleanup removes them
+            # 3. System crashes before action persistence
+            self.save_thumbnail(img_hash, thumbnail_bytes)
+            self._image_metadata[img_hash] = (datetime.now(), True)  # Mark as persisted
+
+            logger.debug(f"Stored image in memory AND disk: {img_hash[:8]}...")
         except Exception as e:
             logger.error(f"Failed to process image for cache: {e}")
 

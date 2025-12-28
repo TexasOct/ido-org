@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import { CheckSquare, X } from 'lucide-react'
+import { ListTodo, X } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -34,7 +34,7 @@ export function TodoAssociationSelector({ selectedTodoId, onTodoSelect }: TodoAs
   return (
     <div className="space-y-2">
       <Label htmlFor="todo-selector" className="flex items-center gap-2 text-base font-semibold">
-        <CheckSquare className="text-primary h-5 w-5" />
+        <ListTodo className="text-primary h-5 w-5" />
         {t('pomodoro.todoAssociation.linkTodo')}
         <Badge variant="outline" className="ml-auto text-xs">
           {t('pomodoro.todoAssociation.optional')}
@@ -116,11 +116,9 @@ export function TodoAssociationSelector({ selectedTodoId, onTodoSelect }: TodoAs
       )}
 
       {selectedTodo && (
-        <div className="border-primary/20 bg-primary/10 rounded-lg border-2 p-4">
+        <div className="bg-muted/30 border-border rounded-lg border p-4">
           <div className="flex items-start gap-3">
-            <CheckSquare className="text-primary mt-0.5 h-5 w-5 shrink-0" />
             <div className="flex-1 space-y-2 overflow-hidden">
-              <p className="text-foreground font-semibold">{selectedTodo.title}</p>
               {selectedTodo.description && (
                 <p className="text-muted-foreground line-clamp-3 text-sm">{selectedTodo.description}</p>
               )}
