@@ -1,7 +1,7 @@
 import {
   LucideIcon,
-  Clock,
   Timer,
+  History,
   BookOpen,
   CheckSquare,
   NotebookPen,
@@ -30,12 +30,19 @@ export const MENU_ITEMS: MenuItem[] = [
     position: 'main'
   },
   {
-    id: 'activity',
-    labelKey: 'menu.activity',
-    icon: Clock,
-    path: '/activity',
+    id: 'pomodoro-review',
+    labelKey: 'menu.pomodoroReview',
+    icon: History,
+    path: '/pomodoro/review',
     position: 'main'
   },
+  // {
+  //   id: 'activity',
+  //   labelKey: 'menu.activity',
+  //   icon: Clock,
+  //   path: '/activity',
+  //   position: 'main'
+  // },
   {
     id: 'ai-summary-knowledge',
     labelKey: 'menu.aiSummaryKnowledge',

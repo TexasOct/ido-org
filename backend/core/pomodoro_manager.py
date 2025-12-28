@@ -223,6 +223,22 @@ class PomodoroManager:
                 new_phase = "break"
                 next_duration = break_duration
 
+                # ★ Trigger activity aggregation for completed work phase ★
+                phase_start_time_str = session.get("phase_start_time")
+                if phase_start_time_str:
+                    phase_start_time = datetime.fromisoformat(phase_start_time_str)
+                else:
+                    # Fallback to session start time if phase start time not available
+                    phase_start_time = datetime.fromisoformat(session.get("start_time", datetime.now().isoformat()))
+                phase_end_time = datetime.now()
+
+                await self._aggregate_work_phase_activities(
+                    session_id=session_id,
+                    work_phase=current_round,
+                    phase_start_time=phase_start_time,
+                    phase_end_time=phase_end_time,
+                )
+
                 # Stop perception during break
                 await self.coordinator.exit_pomodoro_mode()
 
@@ -708,3 +724,71 @@ class PomodoroManager:
                 )
 
         return session_info
+
+    async def _aggregate_work_phase_activities(
+        self,
+        session_id: str,
+        work_phase: int,
+        phase_start_time: datetime,
+        phase_end_time: datetime,
+    ) -> None:
+        """
+        Trigger SessionAgent to aggregate activities for a completed work phase
+
+        This method is called when a work phase ends (work → break transition).
+        It delegates to SessionAgent.aggregate_work_phase() to create activities
+        and emits an event to notify the frontend.
+
+        Args:
+            session_id: Pomodoro session ID
+            work_phase: Work phase number (1-based)
+            phase_start_time: When this work phase started
+            phase_end_time: When this work phase ended
+        """
+        try:
+            logger.info(
+                f"Triggering work phase aggregation: session={session_id}, "
+                f"phase={work_phase}, "
+                f"duration={(phase_end_time - phase_start_time).total_seconds() / 60:.1f}min"
+            )
+
+            # Get SessionAgent from coordinator
+            session_agent = self.coordinator.session_agent
+            if not session_agent:
+                logger.warning(
+                    "SessionAgent not available for work phase aggregation. "
+                    "Activities will not be generated for this work phase."
+                )
+                return
+
+            # Trigger activity aggregation
+            activities = await session_agent.aggregate_work_phase(
+                session_id=session_id,
+                work_phase=work_phase,
+                phase_start_time=phase_start_time,
+                phase_end_time=phase_end_time,
+            )
+
+            activity_count = len(activities)
+            logger.info(
+                f"Work phase aggregation completed: {activity_count} activities "
+                f"created/updated for phase {work_phase}"
+            )
+
+            # Emit event to frontend to notify work phase completion
+            from core.events import emit_pomodoro_work_phase_completed
+
+            emit_pomodoro_work_phase_completed(
+                session_id=session_id,
+                work_phase=work_phase,
+                activity_count=activity_count,
+            )
+
+        except Exception as e:
+            # Don't crash the session flow if aggregation fails
+            # Log error but allow phase switch to proceed
+            logger.error(
+                f"Failed to aggregate work phase activities "
+                f"(session: {session_id}, phase: {work_phase}): {e}",
+                exc_info=True,
+            )

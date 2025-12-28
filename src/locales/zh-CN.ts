@@ -166,6 +166,7 @@ export const zhCN = {
     dashboard: '仪表盘',
     activity: '活动记录',
     pomodoro: '番茄钟',
+    pomodoroReview: '回顾',
     recentEvents: '最近事件',
     aiSummary: 'AI 总结',
     aiSummaryKnowledge: '知识整理',
@@ -1003,6 +1004,62 @@ export const zhCN = {
       noIntent: '请描述你计划做什么',
       startFailed: '启动番茄钟失败：{{error}}',
       endFailed: '结束番茄钟失败：{{error}}'
+    },
+    review: {
+      title: '番茄钟回顾',
+      description: '回顾你的专注会话并追踪你的生产力',
+      selectDate: '选择日期',
+      session: '会话',
+      sessions: '会话',
+      on: '于',
+      noSessionsFound: '该日期没有找到会话记录',
+      selectSessionPrompt: '从列表中选择一个会话以查看详情',
+      focusMetrics: {
+        title: '专注度指标',
+        overallScore: '总体专注度',
+        activities: '活动数',
+        topics: '主题数',
+        avgDuration: '平均活动时长',
+        minutes: '分钟'
+      },
+      activityTimeline: {
+        title: '活动时间轴',
+        workPhase: '工作阶段',
+        activity: '个活动',
+        activities: '个活动',
+        noActivities: '该会话没有记录活动',
+        noActivitiesInPhase: '该阶段没有活动'
+      },
+      phaseTimeline: {
+        title: '会话时间线',
+        minutesTotal: '分钟总计',
+        workPhase: '工作阶段',
+        breakPhase: '休息',
+        minutes: '分钟'
+      },
+      linkActivities: {
+        linkButton: '关联活动',
+        title: '关联未关联的活动',
+        description: '选择在此番茄钟会话期间发生的活动以进行关联',
+        noActivitiesFound: '未找到可关联的活动',
+        selectAll: '全选',
+        cancel: '取消',
+        linkSelected: '关联 {{count}} 个活动',
+        linkSuccess: '成功关联 {{count}} 个活动',
+        linkFailed: '关联活动失败',
+        minutes: '分钟'
+      },
+      focusLevel: {
+        excellent: '优秀',
+        good: '良好',
+        moderate: '中等',
+        low: '较低'
+      },
+      deleteSession: '删除专注时段',
+      deleteConfirmTitle: '删除番茄钟时段？',
+      deleteConfirmDescription: '这将永久删除此时段及其关联的 {{count}} 个活动。此操作无法撤销。',
+      deleteSuccess: '时段删除成功',
+      deleteError: '删除时段失败'
     }
   },
   debug: {

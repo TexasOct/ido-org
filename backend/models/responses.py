@@ -397,6 +397,7 @@ class PomodoroSessionData(BaseModel):
     completed_rounds: int = 0
     # Calculated fields for frontend
     remaining_phase_seconds: Optional[int] = None
+    pure_work_duration_minutes: int = 0  # completed_rounds × work_duration_minutes (excludes breaks)
 
 
 class StartPomodoroResponse(TimedOperationResponse):
@@ -424,5 +425,73 @@ class GetPomodoroStatusResponse(TimedOperationResponse):
     """Response for getting current Pomodoro session status"""
 
     data: Optional[PomodoroSessionData] = None
+
+
+# Pomodoro Session Detail Models (with activities and focus metrics)
+
+
+class PomodoroActivityData(BaseModel):
+    """Activity data for Pomodoro session detail view"""
+
+    id: str
+    title: str
+    description: str
+    start_time: str
+    end_time: str
+    session_duration_minutes: int
+    work_phase: Optional[int] = None  # Which work round (1-4)
+    focus_score: Optional[float] = None  # Focus metric (0.0-1.0)
+    topic_tags: List[str] = []
+    source_event_ids: List[str] = []
+
+
+class PhaseTimelineItem(BaseModel):
+    """Single phase in timeline (work or break)"""
+
+    phase_type: Literal["work", "break"]
+    phase_number: int  # 1-based round number
+    start_time: str
+    end_time: str
+    duration_minutes: int
+
+
+class PomodoroSessionDetailData(BaseModel):
+    """Detailed Pomodoro session with activities and focus metrics"""
+
+    session: Dict[str, Any]  # Full session data
+    activities: List[PomodoroActivityData]
+    focus_metrics: Dict[str, Any]  # Calculated focus metrics
+    phase_timeline: List[PhaseTimelineItem] = []  # Work/break phase timeline
+
+
+class GetPomodoroSessionDetailRequest(BaseModel):
+    """Request to get detailed Pomodoro session information"""
+
+    session_id: str
+
+
+class GetPomodoroSessionDetailResponse(TimedOperationResponse):
+    """Response with detailed Pomodoro session data"""
+
+    data: Optional[PomodoroSessionDetailData] = None
+
+
+class DeletePomodoroSessionRequest(BaseModel):
+    """Request to delete a Pomodoro session"""
+
+    session_id: str
+
+
+class DeletePomodoroSessionData(BaseModel):
+    """Data returned after deleting a session"""
+
+    session_id: str
+    deleted_activities_count: int
+
+
+class DeletePomodoroSessionResponse(TimedOperationResponse):
+    """Response after deleting a Pomodoro session"""
+
+    data: Optional[DeletePomodoroSessionData] = None
 
 

@@ -61,7 +61,7 @@ export function SessionInfoCard() {
   return (
     <Card
       className={cn(
-        'border-2 shadow-lg transition-all duration-300',
+        'border-2 py-2 shadow-lg transition-all duration-300',
         'bg-linear-to-br',
         config.gradient,
         config.border

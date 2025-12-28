@@ -18,6 +18,7 @@ declare global {
   const Dashboard: typeof import('../views/Dashboard')['default']
   const MainLayout: typeof import('../layouts/MainLayout')['MainLayout']
   const Pomodoro: typeof import('../views/Pomodoro')['default']
+  const PomodoroReview: typeof import('../views/PomodoroReview')['default']
   const RecentEvents: typeof import('../views/RecentEvents')['default']
   const Settings: typeof import('../views/Settings')['default']
   const createRef: typeof import('react')['createRef']

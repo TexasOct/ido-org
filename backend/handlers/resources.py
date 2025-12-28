@@ -521,7 +521,7 @@ async def cleanup_broken_action_images(
             # Process specific actions
             actions = []
             for action_id in body.action_ids:
-                action = await db.actions.get(action_id)
+                action = await db.actions.get_by_id(action_id)
                 if action:
                     actions.append(action)
         else:

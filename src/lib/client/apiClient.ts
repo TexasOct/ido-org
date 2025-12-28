@@ -1020,6 +1020,30 @@ export async function getPomodoroStatus(
 }
 
 /**
+ * Find activities that overlap with session time but aren't linked
+ *
+ * Returns list of activities that could be retroactively linked
+ */
+export async function findUnlinkedActivities(
+    body: Commands["find_unlinked_activities"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["find_unlinked_activities"]["output"]> {
+    return await pyInvoke("find_unlinked_activities", body, options);
+}
+
+/**
+ * Link selected activities to a Pomodoro session
+ *
+ * Updates activity records with pomodoro_session_id
+ */
+export async function linkActivitiesToSession(
+    body: Commands["link_activities_to_session"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["link_activities_to_session"]["output"]> {
+    return await pyInvoke("link_activities_to_session", body, options);
+}
+
+/**
  * Get available Pomodoro configuration presets
  *
  * Returns a list of predefined configurations including:
@@ -1050,6 +1074,43 @@ export async function getPomodoroStats(
     options?: InvokeOptions
 ): Promise<Commands["get_pomodoro_stats"]["output"]> {
     return await pyInvoke("get_pomodoro_stats", body, options);
+}
+
+/**
+ * Get detailed Pomodoro session with activities and focus metrics
+ *
+ * Returns:
+ * - Full session data
+ * - All activities generated during this session (ordered by work phase)
+ * - Calculated focus metrics (overall_focus_score, activity_count, topic_diversity, etc.)
+ */
+export async function getPomodoroSessionDetail(
+    body: Commands["get_pomodoro_session_detail"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["get_pomodoro_session_detail"]["output"]> {
+    return await pyInvoke("get_pomodoro_session_detail", body, options);
+}
+
+/**
+ * Delete a Pomodoro session and cascade delete all linked activities
+ *
+ * This operation:
+ * 1. Validates session exists and is not already deleted
+ * 2. Soft deletes all activities linked to this session (cascade)
+ * 3. Soft deletes the session itself
+ * 4. Emits deletion event to notify frontend
+ *
+ * Args:
+ *     body: Request containing session_id
+ *
+ * Returns:
+ *     Response with deletion result and count of cascade-deleted activities
+ */
+export async function deletePomodoroSession(
+    body: Commands["delete_pomodoro_session"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["delete_pomodoro_session"]["output"]> {
+    return await pyInvoke("delete_pomodoro_session", body, options);
 }
 
 /**

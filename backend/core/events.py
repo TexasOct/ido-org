@@ -664,3 +664,67 @@ def emit_pomodoro_phase_switched(
         f"Completed: {completed_rounds}"
     )
     return _emit("pomodoro-phase-switched", payload)
+
+
+def emit_pomodoro_work_phase_completed(
+    session_id: str,
+    work_phase: int,
+    activity_count: int,
+) -> bool:
+    """
+    Send Pomodoro work phase completed event to frontend
+
+    Emitted when a work phase completes and activities have been generated.
+    Allows frontend to display notifications and refresh session detail views.
+
+    Args:
+        session_id: Pomodoro session ID
+        work_phase: Work phase number (1-based)
+        activity_count: Number of activities created/updated for this work phase
+
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    payload = {
+        "session_id": session_id,
+        "work_phase": work_phase,
+        "activity_count": activity_count,
+    }
+
+    logger.debug(
+        f"[emit_pomodoro_work_phase_completed] Session: {session_id}, "
+        f"Phase: {work_phase}, Activities: {activity_count}"
+    )
+    return _emit("pomodoro-work-phase-completed", payload)
+
+
+def emit_pomodoro_session_deleted(
+    session_id: str,
+    timestamp: Optional[str] = None,
+) -> bool:
+    """
+    Send Pomodoro session deleted event to frontend
+
+    Emitted when a session is deleted. Frontend should refresh session list
+    and clear any selected session state.
+
+    Args:
+        session_id: Pomodoro session ID
+        timestamp: Deletion timestamp
+
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    from datetime import datetime
+
+    resolved_timestamp = timestamp or datetime.now().isoformat()
+    payload = {
+        "type": "session_deleted",
+        "data": {"id": session_id, "deletedAt": resolved_timestamp},
+        "timestamp": resolved_timestamp,
+    }
+
+    success = _emit("session-deleted", payload)
+    if success:
+        logger.debug(f"✅ Pomodoro session deletion event sent: {session_id}")
+    return success

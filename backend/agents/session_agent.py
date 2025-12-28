@@ -306,6 +306,17 @@ class SessionAgent:
                     filtered_count += 1
                     continue
 
+                # Skip Pomodoro events (handled by work phase aggregation)
+                # These events are processed when each Pomodoro work phase ends
+                if event.get("pomodoro_session_id"):
+                    filtered_count += 1
+                    logger.debug(
+                        f"Skipping Pomodoro event {event.get('id')} "
+                        f"(session: {event.get('pomodoro_session_id')}) - "
+                        f"handled by work phase aggregation"
+                    )
+                    continue
+
                 # Quality filter 1: Check minimum number of actions
                 source_action_ids = event.get("source_action_ids", [])
                 if len(source_action_ids) < self.min_event_actions:
@@ -1323,3 +1334,553 @@ class SessionAgent:
             "language": self._get_language(),
             "stats": self.stats.copy(),
         }
+
+    # ========== Pomodoro Work Phase Aggregation Methods ==========
+
+    async def aggregate_work_phase(
+        self,
+        session_id: str,
+        work_phase: int,
+        phase_start_time: datetime,
+        phase_end_time: datetime,
+    ) -> List[Dict[str, Any]]:
+        """
+        Aggregate events from a single Pomodoro work phase into activities
+
+        This method is triggered when a Pomodoro work phase ends (work → break transition).
+        It creates activities specifically for that work phase, with intelligent merging
+        with activities from previous work phases in the same session.
+
+        Args:
+            session_id: Pomodoro session ID
+            work_phase: Work phase number (1-based, e.g., 1, 2, 3, 4)
+            phase_start_time: When this work phase started
+            phase_end_time: When this work phase ended
+
+        Returns:
+            List of created/updated activity dictionaries
+        """
+        try:
+            logger.info(
+                f"Starting work phase aggregation: session={session_id}, "
+                f"phase={work_phase}, duration={(phase_end_time - phase_start_time).total_seconds() / 60:.1f}min"
+            )
+
+            # Step 1: Wait briefly for events to be generated (Action → Event aggregation may have delay)
+            await asyncio.sleep(10)
+
+            # Step 2: Get events for this work phase (with retry mechanism)
+            events = await self._get_work_phase_events(
+                session_id, phase_start_time, phase_end_time
+            )
+
+            if not events or len(events) == 0:
+                logger.warning(
+                    f"No events found for work phase {work_phase} after waiting. "
+                    f"User may have been idle during this phase."
+                )
+                return []
+
+            logger.debug(
+                f"Found {len(events)} events for work phase {work_phase} "
+                f"(session: {session_id})"
+            )
+
+            # Step 3: Cluster events into activities using LLM
+            activities = await self._cluster_events_to_sessions(events)
+
+            if not activities:
+                logger.debug(
+                    f"No activities generated from event clustering for work phase {work_phase}"
+                )
+                return []
+
+            # Step 4: Get existing activities from this session (previous work phases)
+            existing_session_activities = await self._get_session_activities(session_id)
+
+            # Step 5: Merge with existing activities from same session (relaxed threshold)
+            activities_to_save, activities_to_update = await self._merge_within_session(
+                new_activities=activities,
+                existing_activities=existing_session_activities,
+                session_id=session_id,
+            )
+
+            # Step 6: Save new activities with pomodoro metadata
+            saved_activities = []
+            for activity in activities_to_save:
+                # Add pomodoro metadata
+                activity["pomodoro_session_id"] = session_id
+                activity["pomodoro_work_phase"] = work_phase
+
+                # Calculate focus score
+                activity["focus_score"] = self._calculate_focus_score(activity)
+
+                # Save to database
+                await self.db.activities.save(
+                    activity_id=activity["id"],
+                    title=activity["title"],
+                    description=activity["description"],
+                    start_time=(
+                        activity["start_time"].isoformat()
+                        if isinstance(activity["start_time"], datetime)
+                        else activity["start_time"]
+                    ),
+                    end_time=(
+                        activity["end_time"].isoformat()
+                        if isinstance(activity["end_time"], datetime)
+                        else activity["end_time"]
+                    ),
+                    source_event_ids=activity["source_event_ids"],
+                    session_duration_minutes=activity.get("session_duration_minutes"),
+                    topic_tags=activity.get("topic_tags", []),
+                    pomodoro_session_id=activity.get("pomodoro_session_id"),
+                    pomodoro_work_phase=activity.get("pomodoro_work_phase"),
+                    focus_score=activity.get("focus_score"),
+                )
+
+                # Mark events as aggregated
+                await self.db.events.mark_as_aggregated(
+                    event_ids=activity["source_event_ids"],
+                    activity_id=activity["id"],
+                )
+
+                saved_activities.append(activity)
+                logger.debug(
+                    f"Created activity '{activity['title']}' for work phase {work_phase} "
+                    f"(focus_score: {activity['focus_score']:.2f})"
+                )
+
+            # Step 7: Update existing activities
+            for update_data in activities_to_update:
+                await self.db.activities.save(
+                    activity_id=update_data["id"],
+                    title=update_data["title"],
+                    description=update_data["description"],
+                    start_time=(
+                        update_data["start_time"].isoformat()
+                        if isinstance(update_data["start_time"], datetime)
+                        else update_data["start_time"]
+                    ),
+                    end_time=(
+                        update_data["end_time"].isoformat()
+                        if isinstance(update_data["end_time"], datetime)
+                        else update_data["end_time"]
+                    ),
+                    source_event_ids=update_data["source_event_ids"],
+                    session_duration_minutes=update_data.get("session_duration_minutes"),
+                    topic_tags=update_data.get("topic_tags", []),
+                    pomodoro_session_id=update_data.get("pomodoro_session_id"),
+                    pomodoro_work_phase=update_data.get("pomodoro_work_phase"),
+                    focus_score=update_data.get("focus_score"),
+                )
+
+                # Mark new events as aggregated
+                new_event_ids = update_data.get("_new_event_ids", [])
+                if new_event_ids:
+                    await self.db.events.mark_as_aggregated(
+                        event_ids=new_event_ids,
+                        activity_id=update_data["id"],
+                    )
+
+                saved_activities.append(update_data)
+                logger.debug(
+                    f"Updated existing activity '{update_data['title']}' with {len(new_event_ids)} new events "
+                    f"(merge reason: {update_data.get('_merge_reason', 'unknown')})"
+                )
+
+            logger.info(
+                f"Work phase {work_phase} aggregation completed: "
+                f"{len(activities_to_save)} new activities, {len(activities_to_update)} updated"
+            )
+
+            return saved_activities
+
+        except Exception as e:
+            logger.error(
+                f"Failed to aggregate work phase {work_phase} for session {session_id}: {e}",
+                exc_info=True,
+            )
+            return []
+
+    async def _get_work_phase_events(
+        self,
+        session_id: str,
+        start_time: datetime,
+        end_time: datetime,
+        max_retries: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get events within a specific work phase time window
+
+        Includes retry mechanism to handle Action → Event aggregation delays.
+
+        Args:
+            session_id: Pomodoro session ID
+            start_time: Work phase start time
+            end_time: Work phase end time
+            max_retries: Maximum number of retries (default: 3)
+
+        Returns:
+            List of event dictionaries
+        """
+        for attempt in range(max_retries):
+            try:
+                # Get all events in this time window
+                all_events = await self.db.events.get_in_timeframe(
+                    start_time.isoformat(), end_time.isoformat()
+                )
+
+                # Filter for this specific pomodoro session (if events are tagged)
+                # Note: Events may not have pomodoro_session_id if they were created
+                # before the session was tagged, so we'll filter primarily by time
+                events = [
+                    event
+                    for event in all_events
+                    if event.get("aggregated_into_activity_id") is None
+                ]
+
+                if events:
+                    logger.debug(
+                        f"Found {len(events)} unaggregated events for work phase "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    return events
+
+                # No events found, wait and retry
+                if attempt < max_retries - 1:
+                    logger.debug(
+                        f"No events found for work phase yet, retrying in 5s "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    await asyncio.sleep(5)
+
+            except Exception as e:
+                logger.error(
+                    f"Error fetching work phase events (attempt {attempt + 1}): {e}",
+                    exc_info=True,
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(5)
+
+        # All retries exhausted
+        logger.warning(
+            f"No events found for work phase after {max_retries} attempts. "
+            f"Time window: {start_time.isoformat()} to {end_time.isoformat()}"
+        )
+        return []
+
+    async def _get_session_activities(
+        self, session_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all activities associated with a Pomodoro session
+
+        Args:
+            session_id: Pomodoro session ID
+
+        Returns:
+            List of activity dictionaries
+        """
+        try:
+            # Query activities by pomodoro_session_id
+            # This will be implemented in activities repository
+            activities = await self.db.activities.get_by_pomodoro_session(session_id)
+            logger.debug(
+                f"Found {len(activities)} existing activities for session {session_id}"
+            )
+            return activities
+        except Exception as e:
+            logger.error(
+                f"Error fetching session activities for {session_id}: {e}",
+                exc_info=True,
+            )
+            return []
+
+    def _merge_activities(
+        self,
+        existing_activity: Dict[str, Any],
+        new_activity: Dict[str, Any],
+        merge_reason: str,
+    ) -> Dict[str, Any]:
+        """
+        Merge two activities into one
+
+        Args:
+            existing_activity: The existing activity to merge into
+            new_activity: The new activity to merge
+            merge_reason: Reason for the merge
+
+        Returns:
+            Merged activity dictionary
+        """
+        # Parse timestamps
+        existing_start = (
+            existing_activity["start_time"]
+            if isinstance(existing_activity["start_time"], datetime)
+            else datetime.fromisoformat(existing_activity["start_time"])
+        )
+        existing_end = (
+            existing_activity["end_time"]
+            if isinstance(existing_activity["end_time"], datetime)
+            else datetime.fromisoformat(existing_activity["end_time"])
+        )
+        new_start = (
+            new_activity["start_time"]
+            if isinstance(new_activity["start_time"], datetime)
+            else datetime.fromisoformat(new_activity["start_time"])
+        )
+        new_end = (
+            new_activity["end_time"]
+            if isinstance(new_activity["end_time"], datetime)
+            else datetime.fromisoformat(new_activity["end_time"])
+        )
+
+        # Merge source_event_ids
+        existing_events = set(existing_activity.get("source_event_ids", []))
+        new_events = set(new_activity.get("source_event_ids", []))
+        all_events = list(existing_events | new_events)
+
+        # Update time range
+        merged_start = min(existing_start, new_start)
+        merged_end = max(existing_end, new_end) if new_end else existing_end
+
+        # Calculate new duration
+        duration_minutes = int((merged_end - merged_start).total_seconds() / 60)
+
+        # Merge topic tags
+        existing_tags = set(existing_activity.get("topic_tags", []))
+        new_tags = set(new_activity.get("topic_tags", []))
+        merged_tags = list(existing_tags | new_tags)
+
+        # Determine primary title/description based on duration
+        existing_duration = (existing_end - existing_start).total_seconds()
+        new_duration = (new_end - new_start).total_seconds() if new_end else 0
+
+        if new_duration > existing_duration:
+            # New activity is primary
+            title = new_activity.get("title", existing_activity.get("title", ""))
+            description = new_activity.get("description", "")
+            if description and existing_activity.get("description"):
+                description = f"{description}\n\n[Related: {existing_activity.get('title')}]\n{existing_activity.get('description')}"
+            elif existing_activity.get("description"):
+                description = existing_activity.get("description")
+        else:
+            # Existing activity is primary
+            title = existing_activity.get("title", "")
+            description = existing_activity.get("description", "")
+            if new_activity.get("description") and new_activity.get("title"):
+                if description:
+                    description = f"{description}\n\n[Related: {new_activity.get('title')}]\n{new_activity.get('description')}"
+                else:
+                    description = new_activity.get("description", "")
+
+        # Create merged activity
+        merged_activity = {
+            "id": existing_activity["id"],
+            "title": title,
+            "description": description,
+            "start_time": merged_start,
+            "end_time": merged_end,
+            "source_event_ids": all_events,
+            "session_duration_minutes": duration_minutes,
+            "topic_tags": merged_tags,
+        }
+
+        return merged_activity
+
+    async def _merge_within_session(
+        self,
+        new_activities: List[Dict[str, Any]],
+        existing_activities: List[Dict[str, Any]],
+        session_id: str,
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Merge new activities with existing activities from the same Pomodoro session
+
+        Uses relaxed similarity threshold compared to global merging, since activities
+        within the same Pomodoro session are more likely to be related (same user intent).
+
+        Merge conditions:
+        - Must have same pomodoro_session_id
+        - Case 1: Direct time overlap
+        - Case 2: Time gap ≤ 5 minutes AND semantic similarity ≥ 0.5 (relaxed from 0.6)
+
+        Args:
+            new_activities: Newly generated activities from current work phase
+            existing_activities: Activities from previous work phases in same session
+            session_id: Pomodoro session ID
+
+        Returns:
+            Tuple of (activities_to_save, activities_to_update)
+            - activities_to_save: New activities that don't merge with existing ones
+            - activities_to_update: Existing activities that absorbed new activities
+        """
+        if not existing_activities:
+            # No existing activities to merge with
+            return (new_activities, [])
+
+        # Relaxed similarity threshold for same-session merging
+        session_similarity_threshold = 0.5  # Lower than global threshold (0.6)
+
+        activities_to_save = []
+        activities_to_update = []
+
+        for new_activity in new_activities:
+            merged = False
+
+            # Check for merge with each existing activity
+            for existing_activity in existing_activities:
+                # Parse timestamps
+                new_start = (
+                    new_activity["start_time"]
+                    if isinstance(new_activity["start_time"], datetime)
+                    else datetime.fromisoformat(new_activity["start_time"])
+                )
+                new_end = (
+                    new_activity["end_time"]
+                    if isinstance(new_activity["end_time"], datetime)
+                    else datetime.fromisoformat(new_activity["end_time"])
+                )
+                existing_start = (
+                    existing_activity["start_time"]
+                    if isinstance(existing_activity["start_time"], datetime)
+                    else datetime.fromisoformat(existing_activity["start_time"])
+                )
+                existing_end = (
+                    existing_activity["end_time"]
+                    if isinstance(existing_activity["end_time"], datetime)
+                    else datetime.fromisoformat(existing_activity["end_time"])
+                )
+
+                # Check merge conditions
+                should_merge = False
+                merge_reason = ""
+
+                # Case 1: Time overlap
+                if new_start <= existing_end and new_end >= existing_start:
+                    should_merge = True
+                    merge_reason = "time_overlap"
+
+                # Case 2: Adjacent/close with semantic similarity
+                else:
+                    # Calculate time gap
+                    if new_start > existing_end:
+                        time_gap = (new_start - existing_end).total_seconds()
+                    else:
+                        time_gap = (existing_start - new_end).total_seconds()
+
+                    if 0 <= time_gap <= self.merge_time_gap_tolerance:
+                        # Calculate semantic similarity (reuse existing method)
+                        similarity = self._calculate_activity_similarity(
+                            existing_activity, new_activity
+                        )
+
+                        if similarity >= session_similarity_threshold:
+                            should_merge = True
+                            merge_reason = f"session_proximity_similarity (gap: {time_gap:.0f}s, similarity: {similarity:.2f})"
+
+                if should_merge:
+                    # Merge new activity into existing activity
+                    merged_activity = self._merge_activities(
+                        existing_activity, new_activity, merge_reason
+                    )
+
+                    # Track which new events were added
+                    merged_activity["_new_event_ids"] = new_activity["source_event_ids"]
+                    merged_activity["_merge_reason"] = merge_reason
+
+                    activities_to_update.append(merged_activity)
+                    merged = True
+
+                    logger.debug(
+                        f"Merging new activity '{new_activity['title']}' into "
+                        f"existing '{existing_activity['title']}' (reason: {merge_reason})"
+                    )
+                    break
+
+            if not merged:
+                # No merge found, save as new activity
+                activities_to_save.append(new_activity)
+
+        return (activities_to_save, activities_to_update)
+
+    def _calculate_focus_score(self, activity: Dict[str, Any]) -> float:
+        """
+        Calculate focus score for an activity based on multiple factors
+
+        Focus score ranges from 0.0 (very unfocused) to 1.0 (highly focused).
+
+        Factors:
+        1. Event density (30% weight): Events per minute
+           - High density (>2 events/min) → frequent task switching → lower score
+           - Low density (<0.5 events/min) → sustained work or idle → moderate/high score
+
+        2. Topic consistency (40% weight): Number of unique topics
+           - 1 topic → highly focused on single subject → high score
+           - 2 topics → related tasks → good score
+           - 3+ topics → scattered attention → lower score
+
+        3. Duration (30% weight): Time spent on activity
+           - >20 min → deep work session → high score
+           - 10-20 min → moderate work session → good score
+           - 5-10 min → brief focus → moderate score
+           - <5 min → very brief → low score
+
+        Args:
+            activity: Activity dictionary with source_event_ids, session_duration_minutes, topic_tags
+
+        Returns:
+            Focus score between 0.0 and 1.0
+        """
+        score = 1.0
+
+        # Factor 1: Event density (30% weight)
+        event_count = len(activity.get("source_event_ids", []))
+        duration_minutes = activity.get("session_duration_minutes", 1)
+
+        if duration_minutes > 0:
+            events_per_minute = event_count / duration_minutes
+
+            if events_per_minute > 2.0:
+                # Too many events per minute → frequent switching
+                score *= 0.7
+            elif events_per_minute < 0.5:
+                # Very few events → either deep focus or idle time
+                # Slightly penalize to account for possible idle time
+                score *= 0.95
+            # else: 0.5-2.0 events/min is normal working pace, no adjustment
+
+        # Factor 2: Topic consistency (40% weight)
+        topic_count = len(activity.get("topic_tags", []))
+
+        if topic_count == 0:
+            # No topics identified → unclear focus
+            score *= 0.8
+        elif topic_count == 1:
+            # Single topic → highly focused
+            score *= 1.0
+        elif topic_count == 2:
+            # Two related topics → good focus
+            score *= 0.9
+        else:
+            # Multiple topics → scattered attention
+            score *= 0.7
+
+        # Factor 3: Duration (30% weight)
+        if duration_minutes > 20:
+            # Deep work session
+            score *= 1.0
+        elif duration_minutes > 10:
+            # Moderate work session
+            score *= 0.8
+        elif duration_minutes > 5:
+            # Brief focus period
+            score *= 0.6
+        else:
+            # Very brief activity
+            score *= 0.4
+
+        # Ensure score stays within bounds
+        final_score = min(1.0, max(0.0, score))
+
+        return round(final_score, 2)

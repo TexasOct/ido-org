@@ -68,6 +68,9 @@ importers:
       '@tailwindcss/vite':
         specifier: ^4.1.17
         version: 4.1.17(rolldown-vite@7.2.2(@types/node@22.19.0)(esbuild@0.25.12)(jiti@2.6.1)(tsx@4.20.6)(yaml@2.8.1))
+      '@tanstack/react-query':
+        specifier: ^5.90.13
+        version: 5.90.13(react@19.2.0)
       '@tauri-apps/api':
         specifier: ^2.9.0
         version: 2.9.0
@@ -1656,6 +1659,14 @@ packages:
     resolution: {integrity: sha512-4+9w8ZHOiGnpcGI6z1TVVfWaX/koK7fKeSYF3qlYg2xpBtbteP2ddBxiarL+HVgfSJGeK5RIxRQmKm4rTJJAwA==}
     peerDependencies:
       vite: ^5.2.0 || ^6 || ^7
+
+  '@tanstack/query-core@5.90.13':
+    resolution: {integrity: sha512-3VzxSkv4ojPPHu0WfOwZ/W5CuN7evAXPzQS+Py2glGxk59Wp+k2T/wgRfrgXAcX1kCTvD9RYUcVEHkMXkEN5jw==, tarball: https://registry.npmjs.org/@tanstack/query-core/-/query-core-5.90.13.tgz}
+
+  '@tanstack/react-query@5.90.13':
+    resolution: {integrity: sha512-i6DY9wnghE0ghHJfDrnnFNatn4CNBzMZv4xPzKB7Lb9zMAoImAxPKoGK9gLOm79aopDa07p6ytlFFWotvwj3DQ==, tarball: https://registry.npmjs.org/@tanstack/react-query/-/react-query-5.90.13.tgz}
+    peerDependencies:
+      react: ^18 || ^19
 
   '@tauri-apps/api@2.9.0':
     resolution: {integrity: sha512-qD5tMjh7utwBk9/5PrTA/aGr3i5QaJ/Mlt7p8NilQ45WgbifUNPyKWsA63iQ8YfQq6R8ajMapU+/Q8nMcPRLNw==}
@@ -5643,6 +5654,13 @@ snapshots:
       '@tailwindcss/oxide': 4.1.17
       tailwindcss: 4.1.17
       vite: rolldown-vite@7.2.2(@types/node@22.19.0)(esbuild@0.25.12)(jiti@2.6.1)(tsx@4.20.6)(yaml@2.8.1)
+
+  '@tanstack/query-core@5.90.13': {}
+
+  '@tanstack/react-query@5.90.13(react@19.2.0)':
+    dependencies:
+      '@tanstack/query-core': 5.90.13
+      react: 19.2.0
 
   '@tauri-apps/api@2.9.0': {}
 

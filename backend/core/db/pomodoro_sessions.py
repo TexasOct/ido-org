@@ -432,11 +432,13 @@ class PomodoroSessionsRepository(BaseRepository):
                 )
                 stats_row = cursor.fetchone()
 
-                # Get session list for the day
+                # Get session list for the day (only completed sessions)
                 cursor = conn.execute(
                     """
                     SELECT * FROM pomodoro_sessions
-                    WHERE DATE(start_time) = ? AND deleted = 0
+                    WHERE DATE(start_time) = ?
+                    AND status = 'completed'
+                    AND deleted = 0
                     ORDER BY start_time DESC
                     """,
                     (date,),

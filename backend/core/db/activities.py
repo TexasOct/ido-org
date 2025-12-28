@@ -32,6 +32,9 @@ class ActivitiesRepository(BaseRepository):
         topic_tags: Optional[List[str]] = None,
         user_merged_from_ids: Optional[List[str]] = None,
         user_split_into_ids: Optional[List[str]] = None,
+        pomodoro_session_id: Optional[str] = None,
+        pomodoro_work_phase: Optional[int] = None,
+        focus_score: Optional[float] = None,
     ) -> None:
         """Save or update an activity (work session)"""
         try:
@@ -42,8 +45,9 @@ class ActivitiesRepository(BaseRepository):
                         id, title, description, start_time, end_time,
                         source_event_ids, session_duration_minutes, topic_tags,
                         user_merged_from_ids, user_split_into_ids,
+                        pomodoro_session_id, pomodoro_work_phase, focus_score,
                         created_at, updated_at, deleted
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
                     """,
                     (
                         activity_id,
@@ -56,6 +60,9 @@ class ActivitiesRepository(BaseRepository):
                         json.dumps(topic_tags) if topic_tags else None,
                         json.dumps(user_merged_from_ids) if user_merged_from_ids else None,
                         json.dumps(user_split_into_ids) if user_split_into_ids else None,
+                        pomodoro_session_id,
+                        pomodoro_work_phase,
+                        focus_score,
                     ),
                 )
                 conn.commit()
@@ -147,6 +154,7 @@ class ActivitiesRepository(BaseRepository):
                     SELECT id, title, description, start_time, end_time,
                            source_event_ids, session_duration_minutes, topic_tags,
                            user_merged_from_ids, user_split_into_ids,
+                           pomodoro_session_id, pomodoro_work_phase, focus_score,
                            created_at, updated_at
                     FROM activities
                     WHERE {where_clause}
@@ -172,6 +180,7 @@ class ActivitiesRepository(BaseRepository):
                     SELECT id, title, description, start_time, end_time,
                            source_event_ids, session_duration_minutes, topic_tags,
                            user_merged_from_ids, user_split_into_ids,
+                           pomodoro_session_id, pomodoro_work_phase, focus_score,
                            created_at, updated_at
                     FROM activities
                     WHERE id = ? AND deleted = 0
@@ -210,6 +219,7 @@ class ActivitiesRepository(BaseRepository):
                     SELECT id, title, description, start_time, end_time,
                            source_event_ids, session_duration_minutes, topic_tags,
                            user_merged_from_ids, user_split_into_ids,
+                           pomodoro_session_id, pomodoro_work_phase, focus_score,
                            created_at, updated_at
                     FROM activities
                     WHERE id IN ({placeholders}) AND deleted = 0
@@ -244,6 +254,7 @@ class ActivitiesRepository(BaseRepository):
                     SELECT id, title, description, start_time, end_time,
                            source_event_ids, session_duration_minutes, topic_tags,
                            user_merged_from_ids, user_split_into_ids,
+                           pomodoro_session_id, pomodoro_work_phase, focus_score,
                            created_at, updated_at
                     FROM activities
                     WHERE deleted = 0
@@ -421,6 +432,195 @@ class ActivitiesRepository(BaseRepository):
             "user_split_into_ids": json.loads(row["user_split_into_ids"])
             if row["user_split_into_ids"]
             else None,
+            "pomodoro_session_id": row["pomodoro_session_id"],
+            "pomodoro_work_phase": row["pomodoro_work_phase"],
+            "focus_score": row["focus_score"],
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
+
+    async def get_by_pomodoro_session(
+        self, session_id: str
+    ) -> List[Dict[str, Any]]:
+        """
+        Get all activities associated with a Pomodoro session
+
+        Args:
+            session_id: Pomodoro session ID
+
+        Returns:
+            List of activity dictionaries, ordered by work phase and start time
+        """
+        try:
+            with self._get_conn() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT id, title, description, start_time, end_time,
+                           source_event_ids, session_duration_minutes, topic_tags,
+                           pomodoro_session_id, pomodoro_work_phase, focus_score,
+                           user_merged_from_ids, user_split_into_ids,
+                           created_at, updated_at
+                    FROM activities
+                    WHERE pomodoro_session_id = ? AND deleted = 0
+                    ORDER BY pomodoro_work_phase ASC, start_time ASC
+                    """,
+                    (session_id,),
+                )
+                rows = cursor.fetchall()
+
+            activities = [self._row_to_dict(row) for row in rows]
+
+            logger.debug(
+                f"Retrieved {len(activities)} activities for Pomodoro session {session_id}"
+            )
+
+            return activities
+
+        except Exception as e:
+            logger.error(
+                f"Failed to get activities for Pomodoro session {session_id}: {e}",
+                exc_info=True,
+            )
+            return []
+
+    async def find_unlinked_overlapping_activities(
+        self,
+        session_start_time: str,
+        session_end_time: str,
+    ) -> List[Dict[str, Any]]:
+        """
+        Find activities that overlap with session time and have no pomodoro_session_id
+
+        Overlap logic: activity overlaps if activity.start_time < session.end_time
+                       AND activity.end_time > session.start_time
+
+        Args:
+            session_start_time: Session start (ISO format)
+            session_end_time: Session end (ISO format)
+
+        Returns:
+            List of unlinked activity dictionaries
+        """
+        try:
+            with self._get_conn() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT id, title, description, start_time, end_time,
+                           source_event_ids, session_duration_minutes, topic_tags,
+                           pomodoro_session_id, pomodoro_work_phase, focus_score,
+                           created_at, updated_at
+                    FROM activities
+                    WHERE deleted = 0
+                      AND pomodoro_session_id IS NULL
+                      AND start_time < ?
+                      AND end_time > ?
+                    ORDER BY start_time ASC
+                    """,
+                    (session_end_time, session_start_time),
+                )
+                rows = cursor.fetchall()
+
+            activities = [self._row_to_dict(row) for row in rows]
+
+            logger.debug(
+                f"Found {len(activities)} unlinked activities overlapping "
+                f"{session_start_time} - {session_end_time}"
+            )
+
+            return activities
+
+        except Exception as e:
+            logger.error(
+                f"Failed to find overlapping activities: {e}",
+                exc_info=True,
+            )
+            return []
+
+    async def link_activities_to_session(
+        self,
+        activity_ids: List[str],
+        session_id: str,
+        work_phase: Optional[int] = None,
+    ) -> int:
+        """
+        Link multiple activities to a Pomodoro session
+
+        Args:
+            activity_ids: List of activity IDs to link
+            session_id: Pomodoro session ID
+            work_phase: Optional work phase number (if known)
+
+        Returns:
+            Number of activities linked
+        """
+        try:
+            if not activity_ids:
+                return 0
+
+            placeholders = ",".join("?" * len(activity_ids))
+            params = [session_id, work_phase] + activity_ids
+
+            with self._get_conn() as conn:
+                cursor = conn.execute(
+                    f"""
+                    UPDATE activities
+                    SET pomodoro_session_id = ?,
+                        pomodoro_work_phase = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id IN ({placeholders})
+                      AND deleted = 0
+                      AND pomodoro_session_id IS NULL
+                    """,
+                    params,
+                )
+                conn.commit()
+                linked_count = cursor.rowcount
+
+            logger.info(
+                f"Linked {linked_count} activities to session {session_id}"
+            )
+
+            return linked_count
+
+        except Exception as e:
+            logger.error(
+                f"Failed to link activities to session: {e}",
+                exc_info=True,
+            )
+            raise
+
+    async def delete_by_session_id(self, session_id: str) -> int:
+        """
+        Soft delete all activities linked to a Pomodoro session
+        Used for cascade deletion when a session is deleted
+
+        Args:
+            session_id: Pomodoro session ID
+
+        Returns:
+            Number of activities deleted
+        """
+        try:
+            with self._get_conn() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE activities
+                    SET deleted = 1, updated_at = CURRENT_TIMESTAMP
+                    WHERE pomodoro_session_id = ? AND deleted = 0
+                    """,
+                    (session_id,),
+                )
+                conn.commit()
+                deleted_count = cursor.rowcount
+
+            logger.info(
+                f"Cascade deleted {deleted_count} activities for session {session_id}"
+            )
+            return deleted_count
+
+        except Exception as e:
+            logger.error(
+                f"Failed to cascade delete activities for session {session_id}: {e}",
+                exc_info=True,
+            )
+            raise

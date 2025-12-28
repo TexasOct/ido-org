@@ -167,6 +167,7 @@ export const en = {
     dashboard: 'Dashboard',
     activity: 'Activity',
     pomodoro: 'Pomodoro',
+    pomodoroReview: 'Review',
     recentEvents: 'Recent Events',
     aiSummary: 'AI Summary',
     aiSummaryKnowledge: 'Knowledge',
@@ -1013,6 +1014,63 @@ export const en = {
       noIntent: 'Please describe what you plan to work on',
       startFailed: 'Failed to start Pomodoro: {{error}}',
       endFailed: 'Failed to end Pomodoro: {{error}}'
+    },
+    review: {
+      title: 'Pomodoro Review',
+      description: 'Review your focus sessions and track your productivity',
+      selectDate: 'Select Date',
+      session: 'Session',
+      sessions: 'Sessions',
+      on: 'on',
+      noSessionsFound: 'No sessions found for this date',
+      selectSessionPrompt: 'Select a session from the list to view details',
+      focusMetrics: {
+        title: 'Focus Metrics',
+        overallScore: 'Overall Focus Score',
+        activities: 'Activities',
+        topics: 'Topics',
+        avgDuration: 'Avg. Activity Duration',
+        minutes: 'min'
+      },
+      activityTimeline: {
+        title: 'Activity Timeline',
+        workPhase: 'Work Phase',
+        activity: 'activity',
+        activities: 'activities',
+        noActivities: 'No activities recorded for this session',
+        noActivitiesInPhase: 'No activities in this phase'
+      },
+      phaseTimeline: {
+        title: 'Session Timeline',
+        minutesTotal: 'minutes total',
+        workPhase: 'Work Phase',
+        breakPhase: 'Break',
+        minutes: 'min'
+      },
+      linkActivities: {
+        linkButton: 'Link Activities',
+        title: 'Link Unlinked Activities',
+        description: 'Select activities that occurred during this Pomodoro session to link them',
+        noActivitiesFound: 'No unlinked activities found',
+        selectAll: 'Select All',
+        cancel: 'Cancel',
+        linkSelected: 'Link {{count}} Activities',
+        linkSuccess: 'Successfully linked {{count}} activities',
+        linkFailed: 'Failed to link activities',
+        minutes: 'minutes'
+      },
+      focusLevel: {
+        excellent: 'Excellent',
+        good: 'Good',
+        moderate: 'Moderate',
+        low: 'Low'
+      },
+      deleteSession: 'Delete Session',
+      deleteConfirmTitle: 'Delete Pomodoro Session?',
+      deleteConfirmDescription:
+        'This will permanently delete this session and all {{count}} linked activities. This action cannot be undone.',
+      deleteSuccess: 'Session deleted successfully',
+      deleteError: 'Failed to delete session'
     }
   },
   debug: {

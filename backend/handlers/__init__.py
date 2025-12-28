@@ -213,6 +213,7 @@ from . import (
     insights,
     monitoring,
     pomodoro,
+    pomodoro_linking,
     pomodoro_presets,
     pomodoro_stats,
     processing,
