@@ -2,11 +2,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FocusScoreVisualization } from './FocusScoreVisualization'
-import { Clock, Hash, RefreshCw } from 'lucide-react'
+import { ActionCard } from '@/components/activity/ActionCard'
+import { Clock, Hash, RefreshCw, ChevronDown, ChevronRight, Loader2, Layers } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { retryWorkPhaseAggregation } from '@/lib/client/apiClient'
+import { pyInvoke } from 'tauri-plugin-pytauri-api'
+import type { Action } from '@/lib/types/activity'
 
 interface Activity {
   id: string
@@ -41,6 +44,9 @@ export function SessionActivityTimeline({
 }: SessionActivityTimelineProps) {
   const { t } = useTranslation()
   const [retryingPhase, setRetryingPhase] = useState<number | null>(null)
+  const [expandedActivityId, setExpandedActivityId] = useState<string | null>(null)
+  const [actionsMap, setActionsMap] = useState<Record<string, Action[]>>({})
+  const [loadingActions, setLoadingActions] = useState<string | null>(null)
 
   // Handle retry work phase aggregation
   const handleRetryWorkPhase = async (workPhase: number) => {
@@ -65,6 +71,43 @@ export function SessionActivityTimeline({
       toast.error(t('pomodoro.review.retryError'))
     } finally {
       setRetryingPhase(null)
+    }
+  }
+
+  // Handle toggle activity actions
+  const handleToggleActions = async (activityId: string) => {
+    if (expandedActivityId === activityId) {
+      // Collapse
+      setExpandedActivityId(null)
+      return
+    }
+
+    // Expand and fetch actions if not already loaded
+    setExpandedActivityId(activityId)
+
+    if (!actionsMap[activityId]) {
+      setLoadingActions(activityId)
+      try {
+        // Call the new get_actions_by_activity command
+        // Note: API expects eventId field name but we're passing activityId value
+        const result = await pyInvoke<{
+          success: boolean
+          actions?: Action[]
+          error?: string
+        }>('get_actions_by_activity', { eventId: activityId })
+
+        if (result.success && result.actions) {
+          setActionsMap((prev) => ({
+            ...prev,
+            [activityId]: result.actions || []
+          }))
+        }
+      } catch (error) {
+        console.error('[SessionActivityTimeline] Failed to load actions:', error)
+        toast.error('Failed to load actions')
+      } finally {
+        setLoadingActions(null)
+      }
     }
   }
 
@@ -186,6 +229,52 @@ export function SessionActivityTimeline({
                                 </Badge>
                               ))}
                             </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Actions drill-down */}
+                      <div className="mt-4 space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="text-muted-foreground flex items-center gap-2 text-xs font-semibold uppercase">
+                            <Layers className="h-3.5 w-3.5" />
+                            Actions
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleToggleActions(activity.id)}
+                            className="h-7 text-xs">
+                            {expandedActivityId === activity.id ? (
+                              <>
+                                <ChevronDown className="mr-1 h-3 w-3" />
+                                Hide Actions
+                              </>
+                            ) : (
+                              <>
+                                <ChevronRight className="mr-1 h-3 w-3" />
+                                View Actions
+                              </>
+                            )}
+                            {loadingActions === activity.id && <Loader2 className="ml-2 h-3 w-3 animate-spin" />}
+                          </Button>
+                        </div>
+
+                        {/* Actions list */}
+                        {expandedActivityId === activity.id && (
+                          <div className="space-y-2">
+                            {loadingActions === activity.id ? (
+                              <div className="border-border text-muted-foreground flex items-center justify-center gap-2 rounded-lg border border-dashed py-6 text-xs">
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                Loading Actions...
+                              </div>
+                            ) : actionsMap[activity.id] && actionsMap[activity.id].length > 0 ? (
+                              actionsMap[activity.id].map((action) => <ActionCard key={action.id} action={action} />)
+                            ) : (
+                              <div className="border-border text-muted-foreground rounded-lg border border-dashed py-6 text-center text-xs">
+                                No actions found
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>
