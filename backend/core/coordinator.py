@@ -717,9 +717,18 @@ class PipelineCoordinator:
             logger.debug("Perception manager already running")
 
         # Keep processing loop running - do NOT cancel it
-        # This allows Actions (30s) and Events (10min) to continue normally
+        # This allows Actions (30s) to continue normally
 
-        # Pause only SessionAgent (activity generation deferred)
+        # NEW: Pause EventAgent during Pomodoro mode (action-based aggregation)
+        # We directly aggregate Actions → Activities, bypassing Events layer
+        try:
+            if self.event_agent:
+                self.event_agent.pause()
+                logger.debug("✓ EventAgent paused (using action-based aggregation)")
+        except Exception as e:
+            logger.error(f"Failed to pause EventAgent: {e}")
+
+        # Pause SessionAgent (activity generation deferred until phase ends)
         try:
             if self.session_agent:
                 self.session_agent.pause()
@@ -761,6 +770,14 @@ class PipelineCoordinator:
                 logger.error(f"Failed to stop perception manager: {e}")
 
         # Processing loop is still running - no need to resume
+
+        # Resume EventAgent (for Normal Mode event generation)
+        try:
+            if self.event_agent:
+                self.event_agent.resume()
+                logger.debug("✓ EventAgent resumed (Normal Mode event generation)")
+        except Exception as e:
+            logger.error(f"Failed to resume EventAgent: {e}")
 
         # Resume SessionAgent and trigger immediate activity aggregation
         try:
