@@ -513,6 +513,7 @@ class SessionAgent:
         self,
         activities: List[Dict[str, Any]],
         source_events: Optional[List[Dict[str, Any]]] = None,
+        source_actions: Optional[List[Dict[str, Any]]] = None,
         max_iterations: int = 3,
     ) -> List[Dict[str, Any]]:
         """
@@ -520,7 +521,8 @@ class SessionAgent:
 
         Args:
             activities: List of activities to validate
-            source_events: Optional list of all source events for semantic validation
+            source_events: Optional list of all source events for semantic validation (deprecated)
+            source_actions: Optional list of all source actions for semantic and temporal validation (preferred)
             max_iterations: Maximum number of validation iterations (default: 3)
 
         Returns:
@@ -551,9 +553,39 @@ class SessionAgent:
                     for activity in current_activities
                 ]
 
-                # Build event mapping for semantic validation
+                # Build action/event mapping for semantic and temporal validation
+                # Prefer actions over events (action-based aggregation)
+                actions_for_validation = None
                 events_for_validation = None
-                if source_events:
+
+                if source_actions:
+                    # Create a mapping of action IDs to actions for lookup
+                    action_map = {action.get("id"): action for action in source_actions if action.get("id")}
+
+                    # For each activity, collect its source actions
+                    actions_for_validation = []
+                    for activity in current_activities:
+                        source_action_ids = activity.get("source_action_ids", [])
+                        activity_actions = []
+                        for action_id in source_action_ids:
+                            if action_id in action_map:
+                                activity_actions.append(action_map[action_id])
+
+                        # Add all actions (we'll pass them all and let supervisor map them)
+                        actions_for_validation.extend(activity_actions)
+
+                    # Remove duplicates while preserving order
+                    seen_ids = set()
+                    unique_actions = []
+                    for action in actions_for_validation:
+                        action_id = action.get("id")
+                        if action_id and action_id not in seen_ids:
+                            seen_ids.add(action_id)
+                            unique_actions.append(action)
+                    actions_for_validation = unique_actions
+
+                elif source_events:
+                    # Fallback to events for backward compatibility
                     # Create a mapping of event IDs to events for lookup
                     event_map = {event.get("id"): event for event in source_events if event.get("id")}
 
@@ -579,9 +611,11 @@ class SessionAgent:
                             unique_events.append(event)
                     events_for_validation = unique_events
 
-                # Validate with source events
+                # Validate with source actions (preferred) or events (fallback)
                 result = await supervisor.validate(
-                    activities_for_validation, source_events=events_for_validation
+                    activities_for_validation,
+                    source_events=events_for_validation,
+                    source_actions=actions_for_validation
                 )
 
                 # Check if we have revised content
@@ -1345,7 +1379,9 @@ class SessionAgent:
         phase_end_time: datetime,
     ) -> List[Dict[str, Any]]:
         """
-        Aggregate events from a single Pomodoro work phase into activities
+        Aggregate actions from a single Pomodoro work phase into activities
+
+        NEW: Direct Actions → Activities aggregation (NO Events layer)
 
         This method is triggered when a Pomodoro work phase ends (work → break transition).
         It creates activities specifically for that work phase, with intelligent merging
@@ -1362,72 +1398,63 @@ class SessionAgent:
         """
         try:
             logger.info(
-                f"Starting work phase aggregation: session={session_id}, "
+                f"Starting work phase aggregation (ACTION-BASED): session={session_id}, "
                 f"phase={work_phase}, duration={(phase_end_time - phase_start_time).total_seconds() / 60:.1f}min"
             )
 
-            # Step 1: Wait for events to be generated (Event extraction runs every 30s)
-            # We wait 35 seconds to ensure at least one extraction cycle has completed
-            logger.debug(f"Waiting 35s for event extraction to complete for work phase {work_phase}")
-            await asyncio.sleep(35)
-
-            # Step 2: Get events for this work phase (with retry mechanism)
-            events = await self._get_work_phase_events(
+            # Step 1: Get actions directly for this work phase (NO WAITING for events)
+            actions = await self._get_work_phase_actions(
                 session_id, phase_start_time, phase_end_time
             )
 
-            if not events or len(events) == 0:
-                # Retry after another 15 seconds in case extraction was delayed
-                logger.debug(
-                    f"No events found for work phase {work_phase}, retrying after 15s..."
-                )
-                await asyncio.sleep(15)
-                events = await self._get_work_phase_events(
-                    session_id, phase_start_time, phase_end_time
-                )
-
-            if not events or len(events) == 0:
+            if not actions:
                 logger.warning(
-                    f"No events found for work phase {work_phase} after waiting 50s total. "
-                    f"User may have been idle during this phase, or event extraction may have failed."
+                    f"No actions found for work phase {work_phase}. "
+                    f"User may have been idle during this phase."
                 )
                 return []
 
             logger.debug(
-                f"Found {len(events)} events for work phase {work_phase} "
+                f"Found {len(actions)} actions for work phase {work_phase} "
                 f"(session: {session_id})"
             )
 
-            # Step 3: Cluster events into activities using LLM
-            activities = await self._cluster_events_to_sessions(events)
+            # Step 2: Cluster actions into activities using NEW LLM prompt
+            activities = await self._cluster_actions_to_activities(actions)
 
             if not activities:
                 logger.debug(
-                    f"No activities generated from event clustering for work phase {work_phase}"
+                    f"No activities generated from action clustering for work phase {work_phase}"
                 )
                 return []
 
-            # Step 4: Get existing activities from this session (previous work phases)
+            # Step 2.5: Validate activities with supervisor (check temporal continuity and semantic accuracy)
+            activities = await self._validate_activities_with_supervisor(
+                activities, source_actions=actions
+            )
+
+            # Step 3: Get existing activities from this session (previous work phases)
             existing_session_activities = await self._get_session_activities(session_id)
 
-            # Step 5: Merge with existing activities from same session (relaxed threshold)
+            # Step 4: Merge with existing activities from same session (relaxed threshold)
             activities_to_save, activities_to_update = await self._merge_within_session(
                 new_activities=activities,
                 existing_activities=existing_session_activities,
                 session_id=session_id,
             )
 
-            # Step 6: Save new activities with pomodoro metadata
+            # Step 5: Save new activities with pomodoro metadata + ACTION-BASED sources
             saved_activities = []
             for activity in activities_to_save:
                 # Add pomodoro metadata
                 activity["pomodoro_session_id"] = session_id
                 activity["pomodoro_work_phase"] = work_phase
+                activity["aggregation_mode"] = "action_based"
 
-                # Calculate focus score
-                activity["focus_score"] = self._calculate_focus_score(activity)
+                # Calculate focus score using action-based method
+                activity["focus_score"] = self._calculate_focus_score_from_actions(activity)
 
-                # Save to database
+                # Save to database with ACTION sources
                 await self.db.activities.save(
                     activity_id=activity["id"],
                     title=activity["title"],
@@ -1442,7 +1469,9 @@ class SessionAgent:
                         if isinstance(activity["end_time"], datetime)
                         else activity["end_time"]
                     ),
-                    source_event_ids=activity["source_event_ids"],
+                    source_event_ids=None,  # NOT USED in action-based mode
+                    source_action_ids=activity["source_action_ids"],  # NEW: action IDs
+                    aggregation_mode="action_based",  # NEW FLAG
                     session_duration_minutes=activity.get("session_duration_minutes"),
                     topic_tags=activity.get("topic_tags", []),
                     pomodoro_session_id=activity.get("pomodoro_session_id"),
@@ -1450,19 +1479,15 @@ class SessionAgent:
                     focus_score=activity.get("focus_score"),
                 )
 
-                # Mark events as aggregated
-                await self.db.events.mark_as_aggregated(
-                    event_ids=activity["source_event_ids"],
-                    activity_id=activity["id"],
-                )
+                # NO NEED to mark events as aggregated (we're bypassing events)
 
                 saved_activities.append(activity)
                 logger.debug(
                     f"Created activity '{activity['title']}' for work phase {work_phase} "
-                    f"(focus_score: {activity['focus_score']:.2f})"
+                    f"(focus_score: {activity['focus_score']:.2f}, actions: {len(activity['source_action_ids'])})"
                 )
 
-            # Step 7: Update existing activities
+            # Step 6: Update existing activities
             for update_data in activities_to_update:
                 await self.db.activities.save(
                     activity_id=update_data["id"],
@@ -1478,7 +1503,9 @@ class SessionAgent:
                         if isinstance(update_data["end_time"], datetime)
                         else update_data["end_time"]
                     ),
-                    source_event_ids=update_data["source_event_ids"],
+                    source_event_ids=None,
+                    source_action_ids=update_data["source_action_ids"],
+                    aggregation_mode="action_based",
                     session_duration_minutes=update_data.get("session_duration_minutes"),
                     topic_tags=update_data.get("topic_tags", []),
                     pomodoro_session_id=update_data.get("pomodoro_session_id"),
@@ -1486,22 +1513,16 @@ class SessionAgent:
                     focus_score=update_data.get("focus_score"),
                 )
 
-                # Mark new events as aggregated
-                new_event_ids = update_data.get("_new_event_ids", [])
-                if new_event_ids:
-                    await self.db.events.mark_as_aggregated(
-                        event_ids=new_event_ids,
-                        activity_id=update_data["id"],
-                    )
+                # NO NEED to mark events as aggregated (action-based mode)
 
                 saved_activities.append(update_data)
                 logger.debug(
-                    f"Updated existing activity '{update_data['title']}' with {len(new_event_ids)} new events "
+                    f"Updated existing activity '{update_data['title']}' with new actions "
                     f"(merge reason: {update_data.get('_merge_reason', 'unknown')})"
                 )
 
             logger.info(
-                f"Work phase {work_phase} aggregation completed: "
+                f"Work phase {work_phase} aggregation completed (ACTION-BASED): "
                 f"{len(activities_to_save)} new activities, {len(activities_to_update)} updated"
             )
 
@@ -1861,6 +1882,250 @@ class SessionAgent:
                 # Slightly penalize to account for possible idle time
                 score *= 0.95
             # else: 0.5-2.0 events/min is normal working pace, no adjustment
+
+        # Factor 2: Topic consistency (40% weight)
+        topic_count = len(activity.get("topic_tags", []))
+
+        if topic_count == 0:
+            # No topics identified → unclear focus
+            score *= 0.8
+        elif topic_count == 1:
+            # Single topic → highly focused
+            score *= 1.0
+        elif topic_count == 2:
+            # Two related topics → good focus
+            score *= 0.9
+        else:
+            # Multiple topics → scattered attention
+            score *= 0.7
+
+        # Factor 3: Duration (30% weight)
+        if duration_minutes > 20:
+            # Deep work session
+            score *= 1.0
+        elif duration_minutes > 10:
+            # Moderate work session
+            score *= 0.8
+        elif duration_minutes > 5:
+            # Brief focus period
+            score *= 0.6
+        else:
+            # Very brief activity
+            score *= 0.4
+
+        # Ensure score stays within bounds
+        final_score = min(1.0, max(0.0, score))
+
+        return round(final_score, 2)
+
+    async def _get_work_phase_actions(
+        self,
+        session_id: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get actions within a specific work phase time window
+
+        Args:
+            session_id: Pomodoro session ID (not used for filtering, as actions don't have session_id)
+            start_time: Work phase start time
+            end_time: Work phase end time
+
+        Returns:
+            List of action dictionaries
+        """
+        try:
+            # Get all actions in this time window
+            actions = await self.db.actions.get_in_timeframe(
+                start_time.isoformat(), end_time.isoformat()
+            )
+
+            logger.debug(
+                f"Found {len(actions)} actions for work phase "
+                f"({start_time.isoformat()} to {end_time.isoformat()})"
+            )
+
+            return actions
+
+        except Exception as e:
+            logger.error(
+                f"Error fetching work phase actions: {e}",
+                exc_info=True,
+            )
+            return []
+
+    async def _cluster_actions_to_activities(
+        self, actions: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Use LLM to cluster actions into activity-level work sessions
+
+        Uses the new 'action_aggregation' prompt (not 'session_aggregation')
+
+        Args:
+            actions: List of action dictionaries
+
+        Returns:
+            List of activity dictionaries with source_action_ids
+        """
+        if not actions:
+            return []
+
+        try:
+            logger.debug(f"Clustering {len(actions)} actions into activities (ACTION-BASED)")
+
+            # Build actions JSON with index
+            actions_with_index = [
+                {
+                    "index": i + 1,
+                    "title": action.get("title", ""),
+                    "description": action.get("description", ""),
+                    "timestamp": action.get("timestamp", ""),
+                }
+                for i, action in enumerate(actions)
+            ]
+            actions_json = json.dumps(actions_with_index, ensure_ascii=False, indent=2)
+
+            # Get current language and prompt manager
+            language = self._get_language()
+            from llm.prompt_manager import get_prompt_manager
+
+            prompt_manager = get_prompt_manager(language)
+
+            # Build messages using NEW prompt
+            messages = prompt_manager.build_messages(
+                "action_aggregation",  # NEW PROMPT CATEGORY
+                "user_prompt_template",
+                actions_json=actions_json,
+            )
+
+            # Get configuration parameters
+            config_params = prompt_manager.get_config_params("action_aggregation")
+
+            # Call LLM
+            response = await self.llm_manager.chat_completion(messages, **config_params)
+            content = response.get("content", "").strip()
+
+            # Parse JSON (already imported at top of file)
+            result = parse_json_from_response(content)
+
+            if not isinstance(result, dict):
+                logger.warning(
+                    f"Action clustering result format error: {content[:200]}"
+                )
+                return []
+
+            activities_data = result.get("activities", [])
+
+            # Convert to complete activity objects
+            activities = []
+            for activity_data in activities_data:
+                # Normalize source indexes
+                normalized_indexes = self._normalize_source_indexes(
+                    activity_data.get("source"), len(actions)
+                )
+
+                if not normalized_indexes:
+                    continue
+
+                source_action_ids: List[str] = []
+                source_actions: List[Dict[str, Any]] = []
+                for idx in normalized_indexes:
+                    action = actions[idx - 1]
+                    action_id = action.get("id")
+                    if action_id:
+                        source_action_ids.append(action_id)
+                    source_actions.append(action)
+
+                if not source_actions:
+                    continue
+
+                # Get timestamps from ACTIONS (not events)
+                start_time = None
+                end_time = None
+                for a in source_actions:
+                    timestamp = a.get("timestamp")
+                    if timestamp:
+                        if isinstance(timestamp, str):
+                            timestamp = datetime.fromisoformat(timestamp)
+                        if start_time is None or timestamp < start_time:
+                            start_time = timestamp
+                        if end_time is None or timestamp > end_time:
+                            end_time = timestamp
+
+                if not start_time:
+                    start_time = datetime.now()
+                if not end_time:
+                    end_time = start_time
+
+                # Calculate duration
+                duration_minutes = int((end_time - start_time).total_seconds() / 60)
+
+                # Extract topic tags from LLM response
+                topic_tags = activity_data.get("topic_tags", [])
+
+                activity = {
+                    "id": str(uuid.uuid4()),
+                    "title": activity_data.get("title", "Unnamed activity"),
+                    "description": activity_data.get("description", ""),
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "source_action_ids": source_action_ids,  # NEW: action IDs instead of event IDs
+                    "topic_tags": topic_tags,
+                    "session_duration_minutes": duration_minutes,
+                    "created_at": datetime.now(),
+                }
+
+                activities.append(activity)
+
+            logger.debug(
+                f"Clustering completed: generated {len(activities)} activities from {len(actions)} actions"
+            )
+
+            return activities
+
+        except Exception as e:
+            logger.error(
+                f"Failed to cluster actions to activities: {e}", exc_info=True
+            )
+            return []
+
+    def _calculate_focus_score_from_actions(self, activity: Dict[str, Any]) -> float:
+        """
+        Calculate focus score for an ACTION-BASED activity
+
+        Similar to _calculate_focus_score() but uses actions instead of events
+
+        Focus score factors:
+        1. Action density (30% weight): Actions per minute
+        2. Topic consistency (40% weight): Number of unique topics
+        3. Duration (30% weight): Time spent on activity
+
+        Args:
+            activity: Activity dictionary with source_action_ids
+
+        Returns:
+            Focus score between 0.0 and 1.0
+        """
+        score = 1.0
+
+        # Factor 1: Action density (30% weight)
+        action_count = len(activity.get("source_action_ids", []))
+        duration_minutes = activity.get("session_duration_minutes", 1)
+
+        if duration_minutes > 0:
+            actions_per_minute = action_count / duration_minutes
+
+            # Actions are finer-grained than events, so adjust thresholds
+            # Normal range: 0.5-3 actions/min (vs 0.5-2 events/min)
+            if actions_per_minute > 3.0:
+                # Too many actions per minute → frequent switching
+                score *= 0.7
+            elif actions_per_minute < 0.5:
+                # Very few actions → either deep focus or idle time
+                score *= 0.95
+            # else: 0.5-3.0 actions/min is normal working pace, no adjustment
 
         # Factor 2: Topic consistency (40% weight)
         topic_count = len(activity.get("topic_tags", []))

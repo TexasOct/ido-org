@@ -223,7 +223,7 @@ class PomodoroManager:
                 new_phase = "break"
                 next_duration = break_duration
 
-                # ★ Trigger activity aggregation for completed work phase ★
+                # ★ Trigger activity aggregation for completed work phase (async, non-blocking) ★
                 phase_start_time_str = session.get("phase_start_time")
                 if phase_start_time_str:
                     phase_start_time = datetime.fromisoformat(phase_start_time_str)
@@ -232,11 +232,14 @@ class PomodoroManager:
                     phase_start_time = datetime.fromisoformat(session.get("start_time", datetime.now().isoformat()))
                 phase_end_time = datetime.now()
 
-                await self._aggregate_work_phase_activities(
-                    session_id=session_id,
-                    work_phase=current_round,
-                    phase_start_time=phase_start_time,
-                    phase_end_time=phase_end_time,
+                # Run aggregation in background, don't block phase transition
+                asyncio.create_task(
+                    self._aggregate_work_phase_activities(
+                        session_id=session_id,
+                        work_phase=current_round,
+                        phase_start_time=phase_start_time,
+                        phase_end_time=phase_end_time,
+                    )
                 )
 
                 # Stop perception during break
@@ -417,22 +420,24 @@ class PomodoroManager:
 
                 logger.info(
                     f"Manual session end during work phase {current_round}, "
-                    f"triggering activity aggregation"
+                    f"triggering activity aggregation (async)"
                 )
 
-                # Trigger activity aggregation for the current (incomplete) work phase
-                await self._aggregate_work_phase_activities(
-                    session_id=session_id,
-                    work_phase=current_round,
-                    phase_start_time=phase_start_time,
-                    phase_end_time=end_time,
-                )
-
-                # Increment completed_rounds to reflect this work phase
+                # Increment completed_rounds to reflect this work phase (before async call)
                 completed_rounds = session.get("completed_rounds", 0) + 1
                 await self.db.pomodoro_sessions.update(
                     session_id=session_id,
                     completed_rounds=completed_rounds,
+                )
+
+                # Trigger activity aggregation in background (non-blocking)
+                asyncio.create_task(
+                    self._aggregate_work_phase_activities(
+                        session_id=session_id,
+                        work_phase=current_round,
+                        phase_start_time=phase_start_time,
+                        phase_end_time=end_time,
+                    )
                 )
 
             # Update database
@@ -826,3 +831,14 @@ class PomodoroManager:
                 f"(session: {session_id}, phase: {work_phase}): {e}",
                 exc_info=True,
             )
+
+    def get_current_session_id(self) -> Optional[str]:
+        """
+        Get current active Pomodoro session ID
+
+        Returns:
+            Session ID if a Pomodoro session is active, None otherwise
+        """
+        if self.is_active and self.current_session:
+            return self.current_session.id
+        return None

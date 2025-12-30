@@ -5,12 +5,15 @@ Endpoints:
 - POST /pomodoro/start - Start a Pomodoro session
 - POST /pomodoro/end - End current Pomodoro session
 - GET /pomodoro/status - Get current Pomodoro session status
+- POST /pomodoro/retry-work-phase - Manually retry work phase activity aggregation
 """
 
-from datetime import datetime
+import asyncio
+from datetime import datetime, timedelta
 from typing import Optional
 
 from core.coordinator import get_coordinator
+from core.db import get_db
 from core.logger import get_logger
 from models.base import BaseModel
 from models.responses import (
@@ -41,6 +44,13 @@ class EndPomodoroRequest(BaseModel):
     """End Pomodoro request"""
 
     status: str = "completed"  # completed, abandoned, interrupted
+
+
+class RetryWorkPhaseRequest(BaseModel):
+    """Retry work phase activity aggregation request"""
+
+    session_id: str
+    work_phase: int
 
 
 @api_handler(
@@ -270,6 +280,121 @@ async def get_pomodoro_status() -> GetPomodoroStatusResponse:
         return GetPomodoroStatusResponse(
             success=False,
             message="Failed to get Pomodoro status",
+            error=str(e),
+            timestamp=datetime.now().isoformat(),
+        )
+
+
+@api_handler(
+    body=RetryWorkPhaseRequest,
+    method="POST",
+    path="/pomodoro/retry-work-phase",
+    tags=["pomodoro"],
+)
+async def retry_work_phase_aggregation(
+    body: RetryWorkPhaseRequest,
+) -> EndPomodoroResponse:
+    """
+    Manually trigger work phase activity aggregation (for retry)
+
+    This endpoint allows users to manually retry activity aggregation for a specific
+    work phase if the automatic aggregation failed or was incomplete.
+
+    Args:
+        body: Request containing session_id and work_phase number
+
+    Returns:
+        EndPomodoroResponse with success status and processing details
+    """
+    try:
+        coordinator = get_coordinator()
+
+        if not coordinator.pomodoro_manager:
+            return EndPomodoroResponse(
+                success=False,
+                message="Pomodoro manager not initialized",
+                error="Pomodoro manager not initialized",
+                timestamp=datetime.now().isoformat(),
+            )
+
+        # Get session from database
+        db = get_db()
+        session = await db.pomodoro_sessions.get_by_id(body.session_id)
+        if not session:
+            return EndPomodoroResponse(
+                success=False,
+                message=f"Session {body.session_id} not found",
+                error=f"Session {body.session_id} not found",
+                timestamp=datetime.now().isoformat(),
+            )
+
+        # Validate work_phase number
+        total_rounds = session.get("total_rounds", 4)
+        if body.work_phase < 1 or body.work_phase > total_rounds:
+            return EndPomodoroResponse(
+                success=False,
+                message=f"Invalid work phase {body.work_phase}. Must be between 1 and {total_rounds}",
+                error=f"Invalid work phase number",
+                timestamp=datetime.now().isoformat(),
+            )
+
+        # Calculate phase time range based on work_phase
+        # Note: This is a simplified calculation. For precise timing,
+        # we would need to store each phase's start/end time in database.
+        session_start = datetime.fromisoformat(session["start_time"])
+        work_duration = session.get("work_duration_minutes", 25)
+        break_duration = session.get("break_duration_minutes", 5)
+
+        # Calculate phase start time
+        # Each complete round = work + break
+        # For work_phase N: start = session_start + (N-1) * (work + break)
+        phase_start_offset = (body.work_phase - 1) * (work_duration + break_duration)
+        phase_start_time = session_start + timedelta(minutes=phase_start_offset)
+
+        # Phase end time = start + work_duration
+        phase_end_time = phase_start_time + timedelta(minutes=work_duration)
+
+        # Use session end time if this was the last work phase
+        if session.get("end_time"):
+            session_end = datetime.fromisoformat(session["end_time"])
+            if phase_end_time > session_end:
+                phase_end_time = session_end
+
+        logger.info(
+            f"Manually triggering work phase aggregation: "
+            f"session={body.session_id}, phase={body.work_phase}, "
+            f"time_range={phase_start_time.isoformat()} to {phase_end_time.isoformat()}"
+        )
+
+        # Trigger aggregation in background (non-blocking)
+        asyncio.create_task(
+            coordinator.pomodoro_manager._aggregate_work_phase_activities(
+                session_id=body.session_id,
+                work_phase=body.work_phase,
+                phase_start_time=phase_start_time,
+                phase_end_time=phase_end_time,
+            )
+        )
+
+        return EndPomodoroResponse(
+            success=True,
+            message=f"Work phase {body.work_phase} aggregation triggered successfully",
+            data=EndPomodoroData(
+                session_id=body.session_id,
+                processing_job_id=None,  # Background task, no job ID
+                raw_records_count=0,
+                message=f"Aggregation triggered for work phase {body.work_phase}",
+            ),
+            timestamp=datetime.now().isoformat(),
+        )
+
+    except Exception as e:
+        logger.error(
+            f"Failed to retry work phase aggregation: {e}", exc_info=True
+        )
+        return EndPomodoroResponse(
+            success=False,
+            message="Failed to retry work phase aggregation",
             error=str(e),
             timestamp=datetime.now().isoformat(),
         )

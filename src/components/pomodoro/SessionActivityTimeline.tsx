@@ -1,8 +1,12 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { FocusScoreVisualization } from './FocusScoreVisualization'
-import { Clock, Hash } from 'lucide-react'
+import { Clock, Hash, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { retryWorkPhaseAggregation } from '@/lib/client/apiClient'
 
 interface Activity {
   id: string
@@ -23,12 +27,46 @@ interface Activity {
 }
 
 interface SessionActivityTimelineProps {
+  sessionId: string
   activities: Activity[]
   totalRounds: number
+  onRetrySuccess?: () => void
 }
 
-export function SessionActivityTimeline({ activities, totalRounds }: SessionActivityTimelineProps) {
+export function SessionActivityTimeline({
+  sessionId,
+  activities,
+  totalRounds,
+  onRetrySuccess
+}: SessionActivityTimelineProps) {
   const { t } = useTranslation()
+  const [retryingPhase, setRetryingPhase] = useState<number | null>(null)
+
+  // Handle retry work phase aggregation
+  const handleRetryWorkPhase = async (workPhase: number) => {
+    setRetryingPhase(workPhase)
+    try {
+      const result = await retryWorkPhaseAggregation({
+        sessionId,
+        workPhase
+      })
+
+      if (result.success) {
+        toast.success(t('pomodoro.review.retrySuccess', { phase: workPhase }))
+        // Notify parent to refetch data after a delay (give backend time to process)
+        setTimeout(() => {
+          onRetrySuccess?.()
+        }, 3000)
+      } else {
+        toast.error(t('pomodoro.review.retryError'))
+      }
+    } catch (error) {
+      console.error('[SessionActivityTimeline] Failed to retry work phase:', error)
+      toast.error(t('pomodoro.review.retryError'))
+    } finally {
+      setRetryingPhase(null)
+    }
+  }
 
   // Group activities by work phase
   const activityGroups = activities.reduce(
@@ -84,9 +122,29 @@ export function SessionActivityTimeline({ activities, totalRounds }: SessionActi
             {/* Activities for this phase */}
             <div className="space-y-3">
               {phaseActivities.length === 0 ? (
-                <p className="text-muted-foreground text-sm italic">
-                  {t('pomodoro.review.activityTimeline.noActivitiesInPhase')}
-                </p>
+                <div className="space-y-3 rounded-lg border border-dashed p-4">
+                  <p className="text-muted-foreground text-sm italic">
+                    {t('pomodoro.review.activityTimeline.noActivitiesInPhase')}
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handleRetryWorkPhase(phase)}
+                    disabled={retryingPhase === phase}
+                    className="w-full">
+                    {retryingPhase === phase ? (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
+                        {t('pomodoro.review.retrying')}
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw className="mr-2 h-4 w-4" />
+                        {t('pomodoro.review.retryAggregation')}
+                      </>
+                    )}
+                  </Button>
+                </div>
               ) : (
                 phaseActivities.map((activity) => (
                   <Card key={activity.id} className="shadow-sm">

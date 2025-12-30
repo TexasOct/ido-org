@@ -27,7 +27,9 @@ class ActivitiesRepository(BaseRepository):
         description: str,
         start_time: str,
         end_time: str,
-        source_event_ids: List[str],
+        source_event_ids: Optional[List[str]] = None,
+        source_action_ids: Optional[List[str]] = None,
+        aggregation_mode: str = "action_based",
         session_duration_minutes: Optional[int] = None,
         topic_tags: Optional[List[str]] = None,
         user_merged_from_ids: Optional[List[str]] = None,
@@ -36,18 +38,51 @@ class ActivitiesRepository(BaseRepository):
         pomodoro_work_phase: Optional[int] = None,
         focus_score: Optional[float] = None,
     ) -> None:
-        """Save or update an activity (work session)"""
+        """
+        Save or update an activity (work session)
+
+        Args:
+            activity_id: Unique activity ID
+            title: Activity title
+            description: Activity description
+            start_time: Activity start time (ISO format)
+            end_time: Activity end time (ISO format)
+            source_event_ids: List of event IDs (for event-based aggregation, deprecated)
+            source_action_ids: List of action IDs (for action-based aggregation, preferred)
+            aggregation_mode: 'event_based' or 'action_based' (default: 'action_based')
+            session_duration_minutes: Session duration in minutes
+            topic_tags: List of topic tags
+            user_merged_from_ids: IDs of activities merged by user
+            user_split_into_ids: IDs of activities split by user
+            pomodoro_session_id: Associated Pomodoro session ID
+            pomodoro_work_phase: Work phase number (1-4)
+            focus_score: Focus metric (0.0-1.0)
+
+        Raises:
+            ValueError: If neither source_event_ids nor source_action_ids is provided
+        """
+        # Validation: at least one source type must be provided
+        if not source_event_ids and not source_action_ids:
+            raise ValueError("Either source_event_ids or source_action_ids must be provided")
+
+        # Auto-detect aggregation mode if source_action_ids is provided
+        if source_action_ids:
+            aggregation_mode = "action_based"
+        elif source_event_ids and not source_action_ids:
+            aggregation_mode = "event_based"
+
         try:
             with self._get_conn() as conn:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO activities (
                         id, title, description, start_time, end_time,
-                        source_event_ids, session_duration_minutes, topic_tags,
+                        source_event_ids, source_action_ids, aggregation_mode,
+                        session_duration_minutes, topic_tags,
                         user_merged_from_ids, user_split_into_ids,
                         pomodoro_session_id, pomodoro_work_phase, focus_score,
                         created_at, updated_at, deleted
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
                     """,
                     (
                         activity_id,
@@ -55,7 +90,9 @@ class ActivitiesRepository(BaseRepository):
                         description,
                         start_time,
                         end_time,
-                        json.dumps(source_event_ids),
+                        json.dumps(source_event_ids) if source_event_ids else None,
+                        json.dumps(source_action_ids) if source_action_ids else None,
+                        aggregation_mode,
                         session_duration_minutes,
                         json.dumps(topic_tags) if topic_tags else None,
                         json.dumps(user_merged_from_ids) if user_merged_from_ids else None,
@@ -66,7 +103,7 @@ class ActivitiesRepository(BaseRepository):
                     ),
                 )
                 conn.commit()
-                logger.debug(f"Saved activity: {activity_id}")
+                logger.debug(f"Saved activity: {activity_id} (mode: {aggregation_mode})")
         except Exception as e:
             logger.error(f"Failed to save activity {activity_id}: {e}", exc_info=True)
             raise
@@ -152,7 +189,8 @@ class ActivitiesRepository(BaseRepository):
                 cursor = conn.execute(
                     f"""
                     SELECT id, title, description, start_time, end_time,
-                           source_event_ids, session_duration_minutes, topic_tags,
+                           source_event_ids, source_action_ids, aggregation_mode,
+                           session_duration_minutes, topic_tags,
                            user_merged_from_ids, user_split_into_ids,
                            pomodoro_session_id, pomodoro_work_phase, focus_score,
                            created_at, updated_at
@@ -178,7 +216,8 @@ class ActivitiesRepository(BaseRepository):
                 cursor = conn.execute(
                     """
                     SELECT id, title, description, start_time, end_time,
-                           source_event_ids, session_duration_minutes, topic_tags,
+                           source_event_ids, source_action_ids, aggregation_mode,
+                           session_duration_minutes, topic_tags,
                            user_merged_from_ids, user_split_into_ids,
                            pomodoro_session_id, pomodoro_work_phase, focus_score,
                            created_at, updated_at
@@ -217,7 +256,8 @@ class ActivitiesRepository(BaseRepository):
                 cursor = conn.execute(
                     f"""
                     SELECT id, title, description, start_time, end_time,
-                           source_event_ids, session_duration_minutes, topic_tags,
+                           source_event_ids, source_action_ids, aggregation_mode,
+                           session_duration_minutes, topic_tags,
                            user_merged_from_ids, user_split_into_ids,
                            pomodoro_session_id, pomodoro_work_phase, focus_score,
                            created_at, updated_at
@@ -252,7 +292,8 @@ class ActivitiesRepository(BaseRepository):
                 cursor = conn.execute(
                     """
                     SELECT id, title, description, start_time, end_time,
-                           source_event_ids, session_duration_minutes, topic_tags,
+                           source_event_ids, source_action_ids, aggregation_mode,
+                           session_duration_minutes, topic_tags,
                            user_merged_from_ids, user_split_into_ids,
                            pomodoro_session_id, pomodoro_work_phase, focus_score,
                            created_at, updated_at
@@ -415,6 +456,13 @@ class ActivitiesRepository(BaseRepository):
 
     def _row_to_dict(self, row) -> Dict[str, Any]:
         """Convert database row to dictionary"""
+        # Helper function to safely get column value
+        def safe_get(row, key, default=None):
+            try:
+                return row[key]
+            except (KeyError, IndexError):
+                return default
+
         return {
             "id": row["id"],
             "title": row["title"],
@@ -424,6 +472,10 @@ class ActivitiesRepository(BaseRepository):
             "source_event_ids": json.loads(row["source_event_ids"])
             if row["source_event_ids"]
             else [],
+            "source_action_ids": json.loads(safe_get(row, "source_action_ids"))
+            if safe_get(row, "source_action_ids")
+            else [],
+            "aggregation_mode": safe_get(row, "aggregation_mode", "action_based"),
             "session_duration_minutes": row["session_duration_minutes"],
             "topic_tags": json.loads(row["topic_tags"]) if row["topic_tags"] else [],
             "user_merged_from_ids": json.loads(row["user_merged_from_ids"])
@@ -432,9 +484,9 @@ class ActivitiesRepository(BaseRepository):
             "user_split_into_ids": json.loads(row["user_split_into_ids"])
             if row["user_split_into_ids"]
             else None,
-            "pomodoro_session_id": row["pomodoro_session_id"],
-            "pomodoro_work_phase": row["pomodoro_work_phase"],
-            "focus_score": row["focus_score"],
+            "pomodoro_session_id": safe_get(row, "pomodoro_session_id"),
+            "pomodoro_work_phase": safe_get(row, "pomodoro_work_phase"),
+            "focus_score": safe_get(row, "focus_score"),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }
@@ -456,7 +508,8 @@ class ActivitiesRepository(BaseRepository):
                 cursor = conn.execute(
                     """
                     SELECT id, title, description, start_time, end_time,
-                           source_event_ids, session_duration_minutes, topic_tags,
+                           source_event_ids, source_action_ids, aggregation_mode,
+                           session_duration_minutes, topic_tags,
                            pomodoro_session_id, pomodoro_work_phase, focus_score,
                            user_merged_from_ids, user_split_into_ids,
                            created_at, updated_at
@@ -506,8 +559,10 @@ class ActivitiesRepository(BaseRepository):
                 cursor = conn.execute(
                     """
                     SELECT id, title, description, start_time, end_time,
-                           source_event_ids, session_duration_minutes, topic_tags,
+                           source_event_ids, source_action_ids, aggregation_mode,
+                           session_duration_minutes, topic_tags,
                            pomodoro_session_id, pomodoro_work_phase, focus_score,
+                           user_merged_from_ids, user_split_into_ids,
                            created_at, updated_at
                     FROM activities
                     WHERE deleted = 0

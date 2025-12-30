@@ -223,8 +223,10 @@ export default function PomodoroReview() {
                   </CardHeader>
                   <CardContent>
                     <SessionActivityTimeline
+                      sessionId={selectedSessionId}
                       activities={detailData.activities as any}
                       totalRounds={(detailData.session as any).total_rounds || 4}
+                      onRetrySuccess={() => refetchDetail()}
                     />
                   </CardContent>
                 </Card>

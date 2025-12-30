@@ -803,6 +803,121 @@ Think carefully, then output **only** the following JSON (no explanatory text):
 }}
 ```"""
 
+[prompts.action_aggregation]
+system_prompt = """You are an expert in understanding work sessions and aggregating fine-grained actions into coherent activities.
+
+Your task is to cluster a series of ACTIONS (fine-grained operations) into ACTIVITIES (coarse-grained work sessions) based on thematic relevance, time continuity, and goal association.
+
+-------------------------------------
+【Core Principles】
+-------------------------------------
+1. **Thematic Coherence**: Group actions that serve the same high-level goal or project
+2. **Time Continuity**: Actions within reasonable time gaps (≤5min) likely belong together
+3. **Goal Association**: Different objects/files serving the same work goal should merge
+4. **Project Consistency**: Same repo/branch/feature indicates same activity
+5. **Workflow Continuity**: Actions forming a logical workflow (write → test → debug → fix)
+
+-------------------------------------
+【Activity Granularity Guidelines】
+-------------------------------------
+- One activity = one focused work session on a coherent theme
+- Merge actions on the same file/feature/problem into one activity
+- Separate activities when switching to a different project/goal/context
+- Examples of ONE activity:
+  - "Implement user authentication feature" (includes writing code, testing, debugging, fixing)
+  - "Research and implement Docker deployment" (includes reading docs, writing config, troubleshooting)
+  - "Debug payment gateway integration" (includes analyzing logs, testing API, fixing bugs)
+- Examples of MULTIPLE activities:
+  - "Implement auth feature" + "Review email from manager" + "Update project roadmap"
+
+-------------------------------------
+【Activity Structure】
+-------------------------------------
+- **title**: Concise summary of the work session (what was accomplished)
+  Format: `[Action Verb] [Object/Feature] ([Context or Purpose])`
+  Examples:
+  - "Implement user authentication with JWT tokens"
+  - "Debug and fix Docker build configuration errors"
+  - "Research TypeScript generics for API client refactoring"
+
+- **description**: Comprehensive narrative of the work session:
+  - Context: What project/feature/problem was being worked on
+  - Actions taken: High-level summary of key steps (not exhaustive list)
+  - Challenges: Any issues encountered and how they were resolved
+  - Outcome: What was achieved by the end
+
+- **topic_tags**: 2-5 high-level semantic tags
+  Examples: ["authentication", "backend"], ["docker", "deployment"], ["typescript", "refactoring"]
+  Avoid generic tags like "code", "debugging", "work"
+
+-------------------------------------
+【Source Action Handling】
+-------------------------------------
+- Use `source` field to list the 1-based indexes of actions that belong to this activity
+- Preserve action order (chronological)
+- Every action must be assigned to exactly one activity (no overlap, no omission)
+
+-------------------------------------
+【Quality Constraints】
+-------------------------------------
+- Each activity should represent ≥5 minutes of focused work
+- Avoid micro-activities (e.g., "Saved file", "Opened browser")
+- Merge trivial actions into meaningful work sessions
+- If actions are too fragmented/unrelated, it's okay to have multiple small activities
+
+-------------------------------------
+【Output Objective】
+-------------------------------------
+Generate high-quality activity summaries that:
+1. Accurately reflect the user's work flow and accomplishments
+2. Are useful for time tracking and work review
+3. Provide semantic context for future retrieval and analysis
+"""
+
+user_prompt_template = """Here are the user's actions during a work period:
+(Actions are ordered chronologically from earliest to latest)
+
+{actions_json}
+
+-------------------------------------
+【Task】
+-------------------------------------
+Cluster these actions into coherent activities (work sessions).
+
+Consider:
+- Thematic relevance (same goal/project)
+- Time continuity (actions close in time)
+- Workflow coherence (logical progression)
+- Context switches (different projects/apps/domains)
+
+-------------------------------------
+【Output Format】
+-------------------------------------
+Return ONLY the following JSON structure:
+
+```json
+{{
+    "activities": [
+        {{
+            "title": "string",
+            "description": "string",
+            "topic_tags": ["string"],
+            "source": [1, 2, 3]
+        }}
+    ]
+}}
+```
+
+Where:
+- `source`: 1-based indexes of actions that belong to this activity
+- Every action index (1 to N) must appear exactly once across all activities
+- Activities are ordered chronologically by their earliest action
+"""
+
+[config.action_aggregation]
+temperature = 0.3
+max_tokens = 4000
+
 [prompts.session_aggregation]
 system_prompt = """You are a work session analysis expert. Task: Aggregate Events (medium-grained work segments) into Activities (coarse-grained work sessions).
 
@@ -1994,10 +2109,29 @@ system_prompt = """You are a professional activity (work session) quality review
 --------------------------------------
 【Review Criteria】(Ordered by Priority)
 --------------------------------------
-1. **Semantic Accuracy Check (HIGHEST PRIORITY)**:
-   **When Source Events are provided, this is the MOST CRITICAL check**
+1. **Temporal Continuity Check (HIGHEST PRIORITY - for Pomodoro work phases)**:
+   **When activities come from the same work phase, temporal continuity is the MOST CRITICAL check**
+   - Check if time gaps between adjacent activities are reasonable
+   - Normal gap: ≤2 minutes (task switching, reading materials, etc.)
+   - Suspicious gap: 2-5 minutes (possible break or unrelated activity)
+   - Abnormal gap: >5 minutes (should split or mark)
+
+   **Handling Time Gap Issues**:
+   - If >5-minute gap exists, MUST check if activities should be split
+   - If gap is reasonable but activities have different themes, keep them split
+   - If gap is very small (<30 seconds) and activities have similar themes, should merge
+
+   **Examples**:
+   ❌ Wrong: Activity A (10:00-10:15) and Activity B (10:15-10:30) with no gap, and same theme
+   ✅ Correct: Should merge into single activity (10:00-10:30)
+
+   ❌ Wrong: Activity A (10:00-10:10) and Activity B (10:20-10:30) with 10-minute gap
+   ✅ Correct: Keep split, or mark that there might be break/unrelated activity in between
+
+2. **Semantic Accuracy Check (HIGH PRIORITY)**:
+   **When Source Events/Actions are provided, this is a CRITICAL check**
    - Does the title reflect the **primary theme** (the theme with most time spent)?
-   - Analyze time distribution across all Source Events, calculate time spent per theme
+   - Analyze time distribution across all Source Events/Actions, calculate time spent per theme
    - If the title describes a minor theme (time ratio <40%), it MUST be corrected to the primary theme
    - With multiple themes, the title MUST only reflect the one consuming the most time
    - Description can mention other minor themes, but title MUST focus on the primary theme
@@ -2009,32 +2143,32 @@ system_prompt = """You are a professional activity (work session) quality review
    ❌ Wrong: 5 events involving Frontend dev (total 50min) and Backend debugging (10min) → Title: "Full-Stack Development - Frontend-Backend Integration"
    ✅ Correct: Title should be: "Frontend Development - UI Component Implementation" (Backend debugging can be briefly mentioned in description)
 
-2. **Title Quality Check**:
+3. **Title Quality Check**:
    - Is the title within 20 characters? (character count)
    - Does it follow the "[Topic] - [Core Work]" format?
    - Does it avoid using semicolons (;) to separate multiple topics?
    - Does it avoid overly broad or vague descriptions (e.g., "Work processing", "Daily tasks")?
    - Does it describe a single work session, not multiple parallel sessions?
 
-3. **Description Quality Check**:
+4. **Description Quality Check**:
    - Is the description within 150-250 words, 3-5 sentences?
    - Does it use structured expression (bullet points or short paragraphs)?
    - Does it avoid lengthy narrative descriptions?
    - Are excessive details omitted (such as action numbers, detailed file paths)?
    - Are key facts preserved (commands, parameters, branch names, PR/Issue numbers, error codes)?
 
-4. **Session Consistency Check**:
+5. **Session Consistency Check**:
    - Does each activity contain only one clear work topic or project?
    - If it contains multiple unrelated topics, should it be split?
    - Are topic transition points correctly identified?
    - Do merged activities truly belong to the same work session?
 
-5. **Information Density Check**:
+6. **Information Density Check**:
    - Does each sentence in the description contain valuable information?
    - Are repetitive operation descriptions removed?
    - Are similar operations compressed using summary language?
 
-6. **Deduplication Check**:
+7. **Deduplication Check**:
    - Are there duplicate or highly similar activities?
    - Should similar activities be merged?
 
@@ -2112,11 +2246,12 @@ Output the following JSON structure (no explanatory text):
 ```
 
 **Review Priorities**:
-1. If Source Events are provided, analyze each event's duration and calculate time distribution per theme
-2. Confirm activity title reflects the theme with largest time ratio (recommend >40%)
-3. Strictly check title length (MUST be ≤20 characters) and format
-4. Check description length (MUST be within 150-250 words)
-5. When any issue is found, MUST provide corrections in revised_activities"""
+1. **Temporal Continuity**: Check time gaps between adjacent activities (<2min normal, 2-5min suspicious, >5min abnormal)
+2. If Source Events/Actions are provided, analyze each's duration and calculate time distribution per theme
+3. Confirm activity title reflects the theme with largest time ratio (recommend >40%)
+4. Strictly check title length (MUST be ≤20 characters) and format
+5. Check description length (MUST be within 150-250 words)
+6. When any issue is found, MUST provide corrections in revised_activities"""
 
 [config.activity_supervisor]
 max_tokens = 2000

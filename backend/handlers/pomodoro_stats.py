@@ -18,6 +18,7 @@ from models.responses import (
     DeletePomodoroSessionData,
     DeletePomodoroSessionRequest,
     DeletePomodoroSessionResponse,
+    FocusMetrics,
     GetPomodoroSessionDetailRequest,
     GetPomodoroSessionDetailResponse,
     PhaseTimelineItem,
@@ -192,17 +193,26 @@ async def get_pomodoro_session_detail(
                 description=activity["description"],
                 start_time=activity["start_time"],
                 end_time=activity["end_time"],
-                session_duration_minutes=activity.get("session_duration_minutes", 0),
+                session_duration_minutes=activity.get("session_duration_minutes") or 0,
                 work_phase=activity.get("pomodoro_work_phase"),
                 focus_score=activity.get("focus_score"),
-                topic_tags=activity.get("topic_tags", []),
-                source_event_ids=activity.get("source_event_ids", []),
+                topic_tags=activity.get("topic_tags") or [],
+                source_event_ids=activity.get("source_event_ids") or [],
+                source_action_ids=activity.get("source_action_ids") or [],
+                aggregation_mode=activity.get("aggregation_mode", "action_based"),
             )
             for activity in activities
         ]
 
         # Calculate focus metrics
-        focus_metrics = _calculate_session_focus_metrics(session, activities)
+        focus_metrics_dict = _calculate_session_focus_metrics(session, activities)
+        focus_metrics = FocusMetrics(
+            overall_focus_score=focus_metrics_dict["overall_focus_score"],
+            activity_count=focus_metrics_dict["activity_count"],
+            topic_diversity=focus_metrics_dict["topic_diversity"],
+            average_activity_duration=focus_metrics_dict["average_activity_duration"],
+            focus_level=focus_metrics_dict["focus_level"],
+        )
 
         # Calculate pure work duration (excludes breaks)
         session_with_pure_duration = dict(session)
@@ -226,7 +236,7 @@ async def get_pomodoro_session_detail(
         logger.debug(
             f"Retrieved session detail for {body.session_id}: "
             f"{len(activities)} activities, "
-            f"focus score: {focus_metrics.get('overall_focus_score', 0):.2f}"
+            f"focus score: {focus_metrics.overall_focus_score:.2f}"
         )
 
         return GetPomodoroSessionDetailResponse(
@@ -287,25 +297,25 @@ def _calculate_session_focus_metrics(
 
     # Calculate weighted average focus score (weighted by activity duration)
     total_duration = sum(
-        activity.get("session_duration_minutes", 0) for activity in activities
+        activity.get("session_duration_minutes") or 0 for activity in activities
     )
 
     if total_duration > 0:
         weighted_score = sum(
-            activity.get("focus_score", 0.5)
-            * activity.get("session_duration_minutes", 0)
+            (activity.get("focus_score") or 0.5)
+            * (activity.get("session_duration_minutes") or 0)
             for activity in activities
         ) / total_duration
     else:
         # If no duration info, use simple average
         weighted_score = sum(
-            activity.get("focus_score", 0.5) for activity in activities
+            activity.get("focus_score") or 0.5 for activity in activities
         ) / len(activities)
 
     # Calculate topic diversity
     all_topics = set()
     for activity in activities:
-        all_topics.update(activity.get("topic_tags", []))
+        all_topics.update(activity.get("topic_tags") or [])
 
     # Calculate average activity duration
     average_duration = (

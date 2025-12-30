@@ -273,6 +273,8 @@ export type Message19 = string
 export type Error19 = string
 export type Timestamp11 = string
 export type Sessionid2 = string
+export type Workphase = number
+export type Sessionid3 = string
 export type Success21 = boolean
 export type Message20 = string
 export type Error20 = string
@@ -283,7 +285,7 @@ export type Starttime4 = string
 export type Endtime3 = string
 export type Sessiondurationminutes = number
 export type Activities1 = UnlinkedActivityData[]
-export type Sessionid3 = string
+export type Sessionid4 = string
 export type Activityids2 = string[]
 export type Success22 = boolean
 export type Message21 = string
@@ -314,7 +316,7 @@ export type Sessions = {
 [k: string]: unknown
 }[]
 export type Timestamp15 = string
-export type Sessionid4 = string
+export type Sessionid5 = string
 export type Success25 = boolean
 export type Message24 = string
 export type Error24 = string
@@ -324,11 +326,18 @@ export type Description5 = string
 export type Starttime5 = string
 export type Endtime4 = string
 export type Sessiondurationminutes1 = number
-export type Workphase = (number | null)
+export type Workphase1 = (number | null)
 export type Focusscore = (number | null)
 export type Topictags = string[]
 export type Sourceeventids = string[]
+export type Sourceactionids1 = string[]
+export type Aggregationmode = string
 export type Activities2 = PomodoroActivityData[]
+export type Overallfocusscore = number
+export type Activitycount = number
+export type Topicdiversity = number
+export type Averageactivityduration = number
+export type Focuslevel = string
 export type Phasetype = ("work" | "break")
 export type Phasenumber = number
 export type Starttime6 = string
@@ -336,11 +345,11 @@ export type Endtime5 = string
 export type Durationminutes1 = number
 export type Phasetimeline = PhaseTimelineItem[]
 export type Timestamp16 = string
-export type Sessionid5 = string
+export type Sessionid6 = string
 export type Success26 = boolean
 export type Message25 = string
 export type Error25 = string
-export type Sessionid6 = string
+export type Sessionid7 = string
 export type Deletedactivitiescount = number
 export type Timestamp17 = string
 export type Days = number
@@ -864,6 +873,10 @@ output: EndPomodoroResponse
 get_pomodoro_status: {
 input: void | undefined
 output: GetPomodoroStatusResponse
+}
+retry_work_phase_aggregation: {
+input: RetryWorkPhaseRequest
+output: EndPomodoroResponse
 }
 find_unlinked_activities: {
 input: FindUnlinkedActivitiesRequest
@@ -1916,10 +1929,17 @@ data?: (PomodoroSessionData | null)
 timestamp?: Timestamp11
 }
 /**
+ * Retry work phase activity aggregation request
+ */
+export interface RetryWorkPhaseRequest {
+sessionId: Sessionid2
+workPhase: Workphase
+}
+/**
  * Request to find activities that could be linked to a session
  */
 export interface FindUnlinkedActivitiesRequest {
-sessionId: Sessionid2
+sessionId: Sessionid3
 }
 /**
  * Response with unlinked activities
@@ -1946,7 +1966,7 @@ sessionDurationMinutes: Sessiondurationminutes
  * Request to link activities to a session
  */
 export interface LinkActivitiesRequest {
-sessionId: Sessionid3
+sessionId: Sessionid4
 activityIds: Activityids2
 }
 /**
@@ -2012,7 +2032,7 @@ sessions: Sessions
  * Request to get detailed Pomodoro session information
  */
 export interface GetPomodoroSessionDetailRequest {
-sessionId: Sessionid4
+sessionId: Sessionid5
 }
 /**
  * Response with detailed Pomodoro session data
@@ -2030,7 +2050,7 @@ timestamp?: Timestamp16
 export interface PomodoroSessionDetailData {
 session: Session
 activities: Activities2
-focusMetrics: Focusmetrics
+focusMetrics: FocusMetrics
 phaseTimeline?: Phasetimeline
 }
 export interface Session {
@@ -2046,13 +2066,22 @@ description: Description5
 startTime: Starttime5
 endTime: Endtime4
 sessionDurationMinutes: Sessiondurationminutes1
-workPhase?: Workphase
+workPhase?: Workphase1
 focusScore?: Focusscore
 topicTags?: Topictags
 sourceEventIds?: Sourceeventids
+sourceActionIds?: Sourceactionids1
+aggregationMode?: Aggregationmode
 }
-export interface Focusmetrics {
-[k: string]: unknown
+/**
+ * Focus metrics for a Pomodoro session
+ */
+export interface FocusMetrics {
+overallFocusScore: Overallfocusscore
+activityCount: Activitycount
+topicDiversity: Topicdiversity
+averageActivityDuration: Averageactivityduration
+focusLevel: Focuslevel
 }
 /**
  * Single phase in timeline (work or break)
@@ -2068,7 +2097,7 @@ durationMinutes: Durationminutes1
  * Request to delete a Pomodoro session
  */
 export interface DeletePomodoroSessionRequest {
-sessionId: Sessionid5
+sessionId: Sessionid6
 }
 /**
  * Response after deleting a Pomodoro session
@@ -2084,7 +2113,7 @@ timestamp?: Timestamp17
  * Data returned after deleting a session
  */
 export interface DeletePomodoroSessionData {
-sessionId: Sessionid6
+sessionId: Sessionid7
 deletedActivitiesCount: Deletedactivitiescount
 }
 /**

@@ -1020,6 +1020,25 @@ export async function getPomodoroStatus(
 }
 
 /**
+ * Manually trigger work phase activity aggregation (for retry)
+ *
+ * This endpoint allows users to manually retry activity aggregation for a specific
+ * work phase if the automatic aggregation failed or was incomplete.
+ *
+ * Args:
+ *     body: Request containing session_id and work_phase number
+ *
+ * Returns:
+ *     EndPomodoroResponse with success status and processing details
+ */
+export async function retryWorkPhaseAggregation(
+    body: Commands["retry_work_phase_aggregation"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["retry_work_phase_aggregation"]["output"]> {
+    return await pyInvoke("retry_work_phase_aggregation", body, options);
+}
+
+/**
  * Find activities that overlap with session time but aren't linked
  *
  * Returns list of activities that could be retroactively linked

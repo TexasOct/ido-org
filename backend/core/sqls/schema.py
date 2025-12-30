@@ -80,8 +80,13 @@ CREATE_ACTIVITIES_TABLE = """
         session_duration_minutes INTEGER,
         topic_tags TEXT,
         source_event_ids TEXT,
+        source_action_ids TEXT,
+        aggregation_mode TEXT DEFAULT 'action_based' CHECK(aggregation_mode IN ('event_based', 'action_based')),
         user_merged_from_ids TEXT,
         user_split_into_ids TEXT,
+        pomodoro_session_id TEXT,
+        pomodoro_work_phase INTEGER,
+        focus_score REAL,
         deleted BOOLEAN DEFAULT 0,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
@@ -493,4 +498,41 @@ ALL_INDEXES = [
     CREATE_POMODORO_SESSIONS_PROCESSING_STATUS_INDEX,
     CREATE_POMODORO_SESSIONS_START_TIME_INDEX,
     CREATE_POMODORO_SESSIONS_CREATED_INDEX,
+]
+
+# ============ Database Migrations ============
+# Migration queries for adding new columns to existing databases
+
+MIGRATE_ACTIVITIES_ADD_POMODORO_FIELDS = """
+    ALTER TABLE activities ADD COLUMN pomodoro_session_id TEXT;
+"""
+
+MIGRATE_ACTIVITIES_ADD_POMODORO_WORK_PHASE = """
+    ALTER TABLE activities ADD COLUMN pomodoro_work_phase INTEGER;
+"""
+
+MIGRATE_ACTIVITIES_ADD_FOCUS_SCORE = """
+    ALTER TABLE activities ADD COLUMN focus_score REAL;
+"""
+
+MIGRATE_ACTIVITIES_ADD_SOURCE_ACTION_IDS = """
+    ALTER TABLE activities ADD COLUMN source_action_ids TEXT;
+"""
+
+MIGRATE_ACTIVITIES_ADD_AGGREGATION_MODE = """
+    ALTER TABLE activities ADD COLUMN aggregation_mode TEXT DEFAULT 'action_based' CHECK(aggregation_mode IN ('event_based', 'action_based'));
+"""
+
+MIGRATE_ACTIVITIES_SET_EXISTING_MODE = """
+    UPDATE activities SET aggregation_mode = 'event_based' WHERE aggregation_mode IS NULL AND source_event_ids IS NOT NULL;
+"""
+
+# All migration queries to run for existing databases
+ALL_MIGRATIONS = [
+    MIGRATE_ACTIVITIES_ADD_POMODORO_FIELDS,
+    MIGRATE_ACTIVITIES_ADD_POMODORO_WORK_PHASE,
+    MIGRATE_ACTIVITIES_ADD_FOCUS_SCORE,
+    MIGRATE_ACTIVITIES_ADD_SOURCE_ACTION_IDS,
+    MIGRATE_ACTIVITIES_ADD_AGGREGATION_MODE,
+    MIGRATE_ACTIVITIES_SET_EXISTING_MODE,
 ]

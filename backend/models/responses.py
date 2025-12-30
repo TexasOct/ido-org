@@ -442,7 +442,9 @@ class PomodoroActivityData(BaseModel):
     work_phase: Optional[int] = None  # Which work round (1-4)
     focus_score: Optional[float] = None  # Focus metric (0.0-1.0)
     topic_tags: List[str] = []
-    source_event_ids: List[str] = []
+    source_event_ids: List[str] = []  # Deprecated, for backward compatibility
+    source_action_ids: List[str] = []  # NEW: Primary source for action-based aggregation
+    aggregation_mode: str = "action_based"  # NEW: 'event_based' or 'action_based'
 
 
 class PhaseTimelineItem(BaseModel):
@@ -455,12 +457,22 @@ class PhaseTimelineItem(BaseModel):
     duration_minutes: int
 
 
+class FocusMetrics(BaseModel):
+    """Focus metrics for a Pomodoro session"""
+
+    overall_focus_score: float  # Weighted average focus score (0.0-1.0)
+    activity_count: int  # Number of activities in session
+    topic_diversity: int  # Number of unique topics
+    average_activity_duration: float  # Average duration per activity (minutes)
+    focus_level: str  # Human-readable level: excellent/good/moderate/low
+
+
 class PomodoroSessionDetailData(BaseModel):
     """Detailed Pomodoro session with activities and focus metrics"""
 
     session: Dict[str, Any]  # Full session data
     activities: List[PomodoroActivityData]
-    focus_metrics: Dict[str, Any]  # Calculated focus metrics
+    focus_metrics: FocusMetrics  # Calculated focus metrics
     phase_timeline: List[PhaseTimelineItem] = []  # Work/break phase timeline
 
 
