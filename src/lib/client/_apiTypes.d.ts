@@ -734,6 +734,10 @@ delete_event: {
 input: DeleteEventRequest
 output: TimedOperationResponse
 }
+get_actions_by_activity: {
+input: GetActionsByEventRequest
+output: GetActionsByEventResponse
+}
 get_recent_events: {
 input: GetRecentEventsRequest
 output: RootModelDictStrAny

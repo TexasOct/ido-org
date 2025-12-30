@@ -7,8 +7,7 @@ import { Clock, Hash, RefreshCw, ChevronDown, ChevronRight, Loader2, Layers } fr
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { retryWorkPhaseAggregation } from '@/lib/client/apiClient'
-import { pyInvoke } from 'tauri-plugin-pytauri-api'
+import { retryWorkPhaseAggregation, getActionsByActivity } from '@/lib/client/apiClient'
 import type { Action } from '@/lib/types/activity'
 
 interface Activity {
@@ -88,18 +87,25 @@ export function SessionActivityTimeline({
     if (!actionsMap[activityId]) {
       setLoadingActions(activityId)
       try {
-        // Call the new get_actions_by_activity command
+        // Call the generated getActionsByActivity function
         // Note: API expects eventId field name but we're passing activityId value
-        const result = await pyInvoke<{
-          success: boolean
-          actions?: Action[]
-          error?: string
-        }>('get_actions_by_activity', { eventId: activityId })
+        const result = await getActionsByActivity({ eventId: activityId })
 
         if (result.success && result.actions) {
+          // Convert ActionResponse to Action (timestamp string to number)
+          const actions: Action[] = result.actions.map((actionResponse) => ({
+            id: actionResponse.id,
+            title: actionResponse.title,
+            description: actionResponse.description,
+            keywords: actionResponse.keywords,
+            timestamp: new Date(actionResponse.timestamp).getTime(),
+            screenshots: actionResponse.screenshots,
+            createdAt: actionResponse.createdAt ? new Date(actionResponse.createdAt).getTime() : undefined
+          }))
+
           setActionsMap((prev) => ({
             ...prev,
-            [activityId]: result.actions || []
+            [activityId]: actions
           }))
         }
       } catch (error) {

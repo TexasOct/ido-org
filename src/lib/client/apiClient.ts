@@ -556,6 +556,22 @@ export async function deleteEvent(
 }
 
 /**
+ * Get all actions for a specific activity (action-based aggregation drill-down).
+ *
+ * Args:
+ *     body: Request containing event_id (but we'll use it as activity_id)
+ *
+ * Returns:
+ *     Response with list of actions including screenshots
+ */
+export async function getActionsByActivity(
+    body: Commands["get_actions_by_activity"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["get_actions_by_activity"]["output"]> {
+    return await pyInvoke("get_actions_by_activity", body, options);
+}
+
+/**
  * Get recent events
  *
  * @param body - Request parameters including limit and offset
