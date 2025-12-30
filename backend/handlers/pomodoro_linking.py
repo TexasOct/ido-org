@@ -5,8 +5,8 @@ Provides endpoints to find and link unlinked activities to Pomodoro sessions
 based on time overlap.
 """
 
-from datetime import datetime
-from typing import List
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional
 
 from core.db import get_db
 from core.logger import get_logger
@@ -139,7 +139,8 @@ async def link_activities_to_session(
     """
     Link selected activities to a Pomodoro session
 
-    Updates activity records with pomodoro_session_id
+    Updates activity records with pomodoro_session_id and auto-categorizes
+    work_phase based on the activity's time period
     """
     try:
         db = get_db()
@@ -153,20 +154,44 @@ async def link_activities_to_session(
                 timestamp=datetime.now().isoformat(),
             )
 
-        # Link activities
-        linked_count = await db.activities.link_activities_to_session(
-            activity_ids=body.activity_ids,
-            session_id=body.session_id,
-            work_phase=None,  # Could be enhanced to detect work phase
-        )
+        # Calculate phase timeline to determine work phases
+        phase_timeline = _calculate_phase_timeline_for_linking(session)
+
+        # Link each activity with auto-categorized work phase
+        linked_count = 0
+        for activity_id in body.activity_ids:
+            # Get activity to check its start time
+            activity = await db.activities.get_by_id(activity_id)
+            if not activity:
+                logger.warning(f"Activity {activity_id} not found, skipping")
+                continue
+
+            # Determine work phase based on activity start time
+            work_phase = _determine_work_phase(
+                activity["start_time"], phase_timeline
+            )
+
+            # Link activity with auto-categorized work phase
+            count = await db.activities.link_activities_to_session(
+                activity_ids=[activity_id],
+                session_id=body.session_id,
+                work_phase=work_phase,
+            )
+            linked_count += count
+
+            logger.debug(
+                f"Linked activity {activity_id} to session {body.session_id}, "
+                f"phase: {work_phase or 'unassigned'}"
+            )
 
         logger.info(
-            f"Linked {linked_count} activities to session {body.session_id}"
+            f"Linked {linked_count} activities to session {body.session_id} "
+            f"with auto-categorized phases"
         )
 
         return LinkActivitiesResponse(
             success=True,
-            message=f"Successfully linked {linked_count} activities",
+            message=f"Successfully linked {linked_count} activities with auto-categorized phases",
             linked_count=linked_count,
             timestamp=datetime.now().isoformat(),
         )
@@ -178,3 +203,94 @@ async def link_activities_to_session(
             message=str(e),
             timestamp=datetime.now().isoformat(),
         )
+
+
+# ============ Helper Functions ============
+
+
+def _calculate_phase_timeline_for_linking(session: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """
+    Calculate work phase timeline for a session
+
+    Returns only work phases (not breaks) with their time ranges
+    """
+    start_time = datetime.fromisoformat(session["start_time"])
+    work_duration = session.get("work_duration_minutes", 25)
+    break_duration = session.get("break_duration_minutes", 5)
+    completed_rounds = session.get("completed_rounds", 0)
+
+    timeline = []
+    current_time = start_time
+
+    for round_num in range(1, completed_rounds + 1):
+        # Work phase
+        work_end = current_time + timedelta(minutes=work_duration)
+        timeline.append({
+            "phase_number": round_num,
+            "start_time": current_time.isoformat(),
+            "end_time": work_end.isoformat(),
+        })
+        current_time = work_end
+
+        # Add break duration to move to next work phase
+        current_time = current_time + timedelta(minutes=break_duration)
+
+    return timeline
+
+
+def _determine_work_phase(
+    activity_start_time: str, phase_timeline: List[Dict[str, Any]]
+) -> Optional[int]:
+    """
+    Determine which work phase an activity belongs to based on its start time
+
+    Args:
+        activity_start_time: ISO format timestamp of activity start
+        phase_timeline: List of work phase dictionaries with start_time, end_time
+
+    Returns:
+        Work phase number (1-based) or None if activity doesn't fall in any work phase
+    """
+    try:
+        activity_time = datetime.fromisoformat(activity_start_time)
+
+        for phase in phase_timeline:
+            phase_start = datetime.fromisoformat(phase["start_time"])
+            phase_end = datetime.fromisoformat(phase["end_time"])
+
+            # Check if activity starts within this work phase
+            if phase_start <= activity_time <= phase_end:
+                return phase["phase_number"]
+
+        # Activity doesn't fall within any work phase
+        # Assign to nearest work phase
+        nearest_phase = None
+        min_distance = None
+
+        for phase in phase_timeline:
+            phase_start = datetime.fromisoformat(phase["start_time"])
+            phase_end = datetime.fromisoformat(phase["end_time"])
+
+            # Calculate distance from activity to this phase
+            if activity_time < phase_start:
+                distance = (phase_start - activity_time).total_seconds()
+            elif activity_time > phase_end:
+                distance = (activity_time - phase_end).total_seconds()
+            else:
+                # This shouldn't happen as we already checked above
+                return phase["phase_number"]
+
+            if min_distance is None or distance < min_distance:
+                min_distance = distance
+                nearest_phase = phase["phase_number"]
+
+        logger.debug(
+            f"Activity at {activity_start_time} doesn't fall in any work phase, "
+            f"assigning to nearest phase: {nearest_phase}"
+        )
+
+        return nearest_phase
+
+    except Exception as e:
+        logger.error(f"Error determining work phase: {e}", exc_info=True)
+        return None

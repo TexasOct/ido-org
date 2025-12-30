@@ -81,11 +81,11 @@ export function SessionActivityTimeline({
     {} as Record<number, Activity[]>
   )
 
-  // Format timestamp to readable time
+  // Format timestamp to readable time (24-hour format)
   const formatTime = (timestamp?: string) => {
     if (!timestamp) return '—'
     const date = new Date(timestamp)
-    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
+    return date.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
   }
 
   if (activities.length === 0) {

@@ -1053,7 +1053,8 @@ export async function findUnlinkedActivities(
 /**
  * Link selected activities to a Pomodoro session
  *
- * Updates activity records with pomodoro_session_id
+ * Updates activity records with pomodoro_session_id and auto-categorizes
+ * work_phase based on the activity's time period
  */
 export async function linkActivitiesToSession(
     body: Commands["link_activities_to_session"]["input"],

@@ -108,7 +108,7 @@ export default function PomodoroReview() {
                   <SessionReviewCard
                     key={session.id}
                     session={session}
-                    activityCount={0} // Will be populated when detail is fetched
+                    activityCount={session.activity_count || 0}
                     focusLevel="moderate" // Default, will be replaced with actual data
                     onViewDetails={() => setSelectedSessionId(session.id)}
                     onDeleted={() => {

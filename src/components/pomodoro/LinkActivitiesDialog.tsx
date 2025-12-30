@@ -96,9 +96,18 @@ export function LinkActivitiesDialog({ sessionId, onLinked }: LinkActivitiesDial
                   <div className="flex-1">
                     <div className="font-medium">{activity.title}</div>
                     <div className="text-muted-foreground text-sm">
-                      {new Date(activity.startTime).toLocaleTimeString()} -{' '}
-                      {new Date(activity.endTime).toLocaleTimeString()} ({activity.sessionDurationMinutes}{' '}
-                      {t('pomodoro.review.linkActivities.minutes')})
+                      {new Date(activity.startTime).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                      })}{' '}
+                      -{' '}
+                      {new Date(activity.endTime).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                      })}{' '}
+                      ({activity.sessionDurationMinutes} {t('pomodoro.review.linkActivities.minutes')})
                     </div>
                   </div>
                 </div>

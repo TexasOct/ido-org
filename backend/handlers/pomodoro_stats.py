@@ -99,7 +99,7 @@ async def get_pomodoro_stats(
         # Get daily stats from repository
         stats = await db.pomodoro_sessions.get_daily_stats(body.date)
 
-        # Optionally fetch associated TODO titles for sessions
+        # Optionally fetch associated TODO titles and activity counts for sessions
         sessions_with_todos = []
         for session in stats.get("sessions", []):
             session_data = dict(session)
@@ -122,6 +122,20 @@ async def get_pomodoro_stats(
             completed_rounds = session_data.get("completed_rounds", 0)
             work_duration = session_data.get("work_duration_minutes", 25)
             session_data["pure_work_duration_minutes"] = completed_rounds * work_duration
+
+            # Get activity count for this session
+            session_id = session_data.get("id")
+            if session_id:
+                try:
+                    activities = await db.activities.get_by_pomodoro_session(session_id)
+                    session_data["activity_count"] = len(activities)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to fetch activities for session {session_id}: {e}"
+                    )
+                    session_data["activity_count"] = 0
+            else:
+                session_data["activity_count"] = 0
 
             sessions_with_todos.append(session_data)
 
