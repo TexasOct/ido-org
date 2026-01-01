@@ -298,6 +298,181 @@ class FocusEvaluator:
             "context_summary": "Focus evaluation unavailable",
         }
 
+    async def evaluate_activity_focus(self, activity: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Evaluate focus score for a single activity using LLM
+
+        Args:
+            activity: Single activity dictionary containing title, description, duration, topics, actions
+
+        Returns:
+            Dictionary containing:
+                - focus_score: 0-100 integer score
+                - reasoning: Brief explanation of the score
+                - work_type: Type of work
+                - is_productive: Boolean indicating if this is productive work
+        """
+        if not activity:
+            logger.warning("No activity provided for focus evaluation")
+            return self._get_default_activity_evaluation()
+
+        # Extract activity information
+        title = activity.get("title", "Untitled Activity")
+        description = activity.get("description", "")
+        duration_minutes = activity.get("session_duration_minutes", 0)
+        topics = activity.get("topic_tags", [])
+        actions = activity.get("actions", [])
+        action_count = len(actions)
+
+        # Format actions summary
+        actions_summary = self._format_actions_summary(actions)
+
+        # Get prompt template
+        try:
+            user_prompt_template = self.prompt_manager.get_prompt(
+                "activity_focus_evaluation", "user_prompt_template"
+            )
+            system_prompt = self.prompt_manager.get_prompt(
+                "activity_focus_evaluation", "system_prompt"
+            )
+        except Exception as e:
+            logger.error(f"Failed to load activity focus evaluation prompts: {e}")
+            return self._get_default_activity_evaluation()
+
+        # Fill in prompt template
+        user_prompt = user_prompt_template.format(
+            title=title,
+            description=description or "No description",
+            duration_minutes=f"{duration_minutes:.1f}",
+            topics=", ".join(topics) if topics else "None",
+            action_count=action_count,
+            actions_summary=actions_summary,
+        )
+
+        # Call LLM
+        try:
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ]
+
+            response = await self.llm_manager.chat_completion(
+                messages,
+                max_tokens=500,
+                temperature=0.3,  # Lower temperature for consistent evaluation
+                request_type="activity_focus_evaluation",
+            )
+
+            content = response.get("content", "")
+
+            # Parse JSON response
+            evaluation = self._parse_activity_llm_response(content)
+
+            # Validate and normalize the evaluation
+            evaluation = self._validate_activity_evaluation(evaluation)
+
+            logger.debug(
+                f"Activity focus evaluation completed: score={evaluation.get('focus_score')}, "
+                f"activity='{title[:50]}'"
+            )
+
+            return evaluation
+
+        except Exception as e:
+            logger.error(f"LLM activity focus evaluation failed: {e}", exc_info=True)
+            return self._get_default_activity_evaluation()
+
+    def _format_actions_summary(self, actions: List[Dict[str, Any]]) -> str:
+        """
+        Format actions into a concise summary
+
+        Args:
+            actions: List of action dictionaries
+
+        Returns:
+            Formatted actions summary string
+        """
+        if not actions:
+            return "No actions recorded"
+
+        lines = []
+        for i, action in enumerate(actions[:5], 1):  # Limit to first 5 actions
+            title = action.get("title", "Untitled")
+            lines.append(f"{i}. {title}")
+
+        if len(actions) > 5:
+            lines.append(f"... and {len(actions) - 5} more actions")
+
+        return "\n".join(lines)
+
+    def _parse_activity_llm_response(self, content: str) -> Dict[str, Any]:
+        """
+        Parse LLM JSON response for activity evaluation
+
+        Args:
+            content: LLM response content
+
+        Returns:
+            Parsed evaluation dict
+        """
+        # Try to extract JSON from markdown code blocks
+        if "```json" in content:
+            start = content.find("```json") + 7
+            end = content.find("```", start)
+            json_str = content[start:end].strip()
+        elif "```" in content:
+            start = content.find("```") + 3
+            end = content.find("```", start)
+            json_str = content[start:end].strip()
+        else:
+            json_str = content.strip()
+
+        # Parse JSON
+        try:
+            evaluation = json.loads(json_str)
+            return evaluation
+        except json.JSONDecodeError as e:
+            logger.error(
+                f"Failed to parse activity LLM JSON response: {e}\nContent: {content}"
+            )
+            raise
+
+    def _validate_activity_evaluation(self, evaluation: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate and normalize activity evaluation result
+
+        Args:
+            evaluation: Raw evaluation dict from LLM
+
+        Returns:
+            Validated and normalized evaluation dict
+        """
+        # Ensure focus_score is 0-100 integer
+        focus_score = int(evaluation.get("focus_score", 50))
+        focus_score = max(0, min(100, focus_score))
+        evaluation["focus_score"] = focus_score
+
+        # Ensure other required fields have defaults
+        evaluation.setdefault("reasoning", "")
+        evaluation.setdefault("work_type", "unclear")
+        evaluation.setdefault("is_productive", focus_score >= 60)
+
+        return evaluation
+
+    def _get_default_activity_evaluation(self) -> Dict[str, Any]:
+        """
+        Get default activity evaluation result (used when LLM fails)
+
+        Returns:
+            Default evaluation dict
+        """
+        return {
+            "focus_score": 50,
+            "reasoning": "Unable to evaluate activity focus - using default score",
+            "work_type": "unclear",
+            "is_productive": False,
+        }
+
 
 # Global instance
 _focus_evaluator: Optional[FocusEvaluator] = None

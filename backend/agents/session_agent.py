@@ -13,6 +13,7 @@ from core.db import get_db
 from core.json_parser import parse_json_from_response
 from core.logger import get_logger
 from core.settings import get_settings
+from llm.focus_evaluator import get_focus_evaluator
 from llm.manager import get_llm_manager
 from llm.prompt_manager import get_prompt_manager
 
@@ -1452,16 +1453,44 @@ class SessionAgent:
                 session_id=session_id,
             )
 
-            # Step 5: Save new activities with pomodoro metadata + ACTION-BASED sources
+            # Step 5: Evaluate focus scores using LLM in parallel, then save activities
+            # Get focus evaluator
+            focus_evaluator = get_focus_evaluator()
+
+            # Batch evaluate all activities in parallel
+            logger.info(
+                f"Starting parallel LLM focus evaluation for {len(activities_to_save)} activities"
+            )
+            eval_tasks = [
+                focus_evaluator.evaluate_activity_focus(act) for act in activities_to_save
+            ]
+            eval_results = await asyncio.gather(*eval_tasks, return_exceptions=True)
+
+            # Process results with error handling and save activities
             saved_activities = []
-            for activity in activities_to_save:
+            for activity, eval_result in zip(activities_to_save, eval_results):
                 # Add pomodoro metadata
                 activity["pomodoro_session_id"] = session_id
                 activity["pomodoro_work_phase"] = work_phase
                 activity["aggregation_mode"] = "action_based"
 
-                # Calculate focus score using action-based method
-                activity["focus_score"] = self._calculate_focus_score_from_actions(activity)
+                # Process LLM evaluation result with fallback
+                if isinstance(eval_result, Exception):
+                    # Fallback to algorithm on error
+                    logger.warning(
+                        f"LLM evaluation failed for activity '{activity.get('title', 'Untitled')}': {eval_result}. "
+                        "Falling back to algorithm-based scoring."
+                    )
+                    activity["focus_score"] = self._calculate_focus_score_from_actions(
+                        activity
+                    )
+                else:
+                    # Use LLM evaluation score (0-100 scale)
+                    activity["focus_score"] = eval_result.get("focus_score", 50)
+                    logger.debug(
+                        f"LLM focus score for '{activity.get('title', 'Untitled')[:50]}': "
+                        f"{activity['focus_score']} (reasoning: {eval_result.get('reasoning', '')[:100]})"
+                    )
 
                 # Save to database with ACTION sources
                 await self.db.activities.save(
