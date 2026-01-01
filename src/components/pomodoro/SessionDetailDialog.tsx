@@ -216,22 +216,6 @@ export function SessionDetailDialog({ sessionId, open, onOpenChange, onDeleted }
                   </CardContent>
                 </Card>
 
-                {/* Activity timeline with integrated phase timeline */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-base">{t('pomodoro.review.activityTimeline.title')}</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <SessionActivityTimeline
-                      sessionId={sessionId!}
-                      activities={detailData.activities as any}
-                      totalRounds={(detailData.session as any).total_rounds || 4}
-                      phaseTimeline={detailData.phaseTimeline as any}
-                      onRetrySuccess={() => refetchDetail()}
-                    />
-                  </CardContent>
-                </Card>
-
                 {/* AI Analysis Panel */}
                 {detailData.llmFocusEvaluation && (
                   <Card>
@@ -379,6 +363,22 @@ export function SessionDetailDialog({ sessionId, open, onOpenChange, onDeleted }
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Activity timeline with integrated phase timeline */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">{t('pomodoro.review.activityTimeline.title')}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <SessionActivityTimeline
+                      sessionId={sessionId!}
+                      activities={detailData.activities as any}
+                      totalRounds={(detailData.session as any).total_rounds || 4}
+                      phaseTimeline={detailData.phaseTimeline as any}
+                      onRetrySuccess={() => refetchDetail()}
+                    />
+                  </CardContent>
+                </Card>
               </div>
             </>
           )}
