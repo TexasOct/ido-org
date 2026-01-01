@@ -9,11 +9,12 @@ interface TodoCardsViewProps {
   onComplete: (todo: InsightTodo) => void
   onDelete: (todoId: string) => void
   onExecuteInChat: (todoId: string) => void
+  onTodoClick?: (todo: InsightTodo) => void
 }
 
 type TodoStatus = 'unscheduled' | 'scheduled' | 'completed' | 'all'
 
-export function TodoCardsView({ todos, onComplete, onDelete }: TodoCardsViewProps) {
+export function TodoCardsView({ todos, onComplete, onDelete, onTodoClick }: TodoCardsViewProps) {
   const { t } = useTranslation()
   const [activeTab, setActiveTab] = useState<TodoStatus>('unscheduled')
   const [newTodoTitle, setNewTodoTitle] = useState('')
@@ -44,7 +45,7 @@ export function TodoCardsView({ todos, onComplete, onDelete }: TodoCardsViewProp
       {/* Statistics Cards */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-card rounded-lg border p-4">
-          <div className="text-muted-foreground mb-1 text-sm">{t('insights.todoUnscheduled', '待办')}</div>
+          <div className="text-muted-foreground mb-1 text-sm">{t('insights.todoUnscheduled', 'To Schedule')}</div>
           <div className="text-3xl font-semibold">{unscheduledCount}</div>
         </div>
 
@@ -54,7 +55,7 @@ export function TodoCardsView({ todos, onComplete, onDelete }: TodoCardsViewProp
         </div>
 
         <div className="bg-card rounded-lg border p-4">
-          <div className="text-muted-foreground mb-1 text-sm">{t('insights.todosCount', 'Total')}</div>
+          <div className="text-muted-foreground mb-1 text-sm">{t('insights.totalTodos', 'Total')}</div>
           <div className="text-3xl font-semibold">{todos.length}</div>
         </div>
       </div>
@@ -86,14 +87,14 @@ export function TodoCardsView({ todos, onComplete, onDelete }: TodoCardsViewProp
           className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'unscheduled' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
           }`}>
-          {t('insights.todoUnscheduled', '待办')} ({unscheduledCount})
+          {t('insights.todoUnscheduled', 'To Schedule')} ({unscheduledCount})
         </button>
         <button
           onClick={() => setActiveTab('scheduled')}
           className={`flex-1 rounded-md px-4 py-2 text-sm font-medium transition-colors ${
             activeTab === 'scheduled' ? 'bg-background shadow-sm' : 'text-muted-foreground hover:text-foreground'
           }`}>
-          {t('insights.todoScheduled', '进行中')} ({scheduledCount})
+          {t('insights.todoScheduled', 'In Progress')} ({scheduledCount})
         </button>
         <button
           onClick={() => setActiveTab('completed')}
@@ -122,13 +123,20 @@ export function TodoCardsView({ todos, onComplete, onDelete }: TodoCardsViewProp
           </div>
         ) : (
           filteredTodos.map((todo) => (
-            <div key={todo.id} className="bg-card rounded-lg border p-4">
+            <div
+              key={todo.id}
+              className="bg-card cursor-pointer rounded-lg border p-4 transition-shadow hover:shadow-md"
+              onClick={() => onTodoClick?.(todo)}>
               <div className="mb-3 flex items-start justify-between">
                 <div className="flex items-start gap-3">
                   <input
                     type="checkbox"
                     checked={!!todo.completed}
-                    onChange={() => !todo.completed && onComplete(todo)}
+                    onChange={(e) => {
+                      e.stopPropagation()
+                      !todo.completed && onComplete(todo)
+                    }}
+                    onClick={(e) => e.stopPropagation()}
                     className="bg-background border-input mt-1 h-5 w-5 cursor-pointer rounded border"
                   />
                   <div>
@@ -139,7 +147,10 @@ export function TodoCardsView({ todos, onComplete, onDelete }: TodoCardsViewProp
                   </div>
                 </div>
                 <button
-                  onClick={() => onDelete(todo.id)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onDelete(todo.id)
+                  }}
                   className="text-muted-foreground hover:text-destructive transition-colors">
                   <svg
                     xmlns="http://www.w3.org/2000/svg"
