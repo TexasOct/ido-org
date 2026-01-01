@@ -334,7 +334,7 @@ async def retry_work_phase_aggregation(
             return EndPomodoroResponse(
                 success=False,
                 message=f"Invalid work phase {body.work_phase}. Must be between 1 and {total_rounds}",
-                error=f"Invalid work phase number",
+                error="Invalid work phase number",
                 timestamp=datetime.now().isoformat(),
             )
 

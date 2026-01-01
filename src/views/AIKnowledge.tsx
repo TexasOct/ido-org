@@ -137,7 +137,7 @@ export default function AIKnowledgeView() {
         {/* Main Content */}
         <div className="flex flex-1 flex-col overflow-hidden">
           {/* Fixed Search and Filter Section */}
-          <div className="flex-shrink-0 space-y-4 pb-4">
+          <div className="shrink-0 space-y-4 pb-4">
             {/* Search Bar */}
             <div className="relative">
               <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />

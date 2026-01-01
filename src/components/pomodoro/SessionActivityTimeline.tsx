@@ -329,7 +329,7 @@ export function SessionActivityTimeline({
 
                 return (
                   <div className="bg-muted/30 mt-4 flex items-center gap-3 rounded-lg border border-dashed p-3">
-                    <Coffee className="text-muted-foreground h-4 w-4 flex-shrink-0" />
+                    <Coffee className="text-muted-foreground h-4 w-4 shrink-0" />
                     <div className="flex-1">
                       <div className="text-muted-foreground text-sm font-medium">
                         {t('pomodoro.review.activityTimeline.breakTime')}

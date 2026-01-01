@@ -51,7 +51,7 @@ export function PageLayout({
       <div className={cn('flex h-full flex-col', className)}>
         {/* Sticky Header */}
         {header && (
-          <div className="bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-10 backdrop-blur">
+          <div className="bg-background/95 supports-backdrop-filter:bg-background/60 sticky top-0 z-10 backdrop-blur">
             <div className={cn('mx-auto w-full', maxWidthClass)}>{header}</div>
           </div>
         )}
