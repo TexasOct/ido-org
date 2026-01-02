@@ -8,11 +8,13 @@ export default function Pomodoro() {
   const { t } = useTranslation()
 
   return (
-    <PageLayout maxWidth="2xl">
+    <PageLayout stickyHeader>
       <PageHeader title={t('pomodoro.title')} description={t('pomodoro.description')} />
 
-      <div className="flex-1 overflow-y-auto px-6 py-2">
-        <PomodoroTimer />
+      <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="mx-auto w-full max-w-2xl">
+          <PomodoroTimer />
+        </div>
       </div>
     </PageLayout>
   )

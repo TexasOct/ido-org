@@ -300,6 +300,7 @@ export const zhCN = {
     }
   },
   chat: {
+    conversations: '对话列表',
     newConversation: '新对话',
     noConversations: '暂无对话',
     selectOrCreate: '选择对话或创建新对话',

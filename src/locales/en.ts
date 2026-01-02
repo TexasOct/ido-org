@@ -298,6 +298,7 @@ export const en = {
     }
   },
   chat: {
+    conversations: 'Conversations',
     newConversation: 'New conversation',
     noConversations: 'No conversations',
     selectOrCreate: 'Select or create a conversation',

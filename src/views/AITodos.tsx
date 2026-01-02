@@ -340,7 +340,7 @@ export default function AITodosView() {
             </div>
 
             {/* Right column: pending section - hidden on small screens */}
-            <div className="hidden w-80 shrink-0 flex-col overflow-hidden rounded-lg border lg:flex">
+            <div className="hidden w-80 shrink-0 flex-col overflow-hidden rounded-lg border xl:flex">
               <div className="shrink-0 border-b px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div>
@@ -377,7 +377,7 @@ export default function AITodosView() {
 
             {/* Floating button to open sidebar on small screens */}
             <Button
-              className="bg-primary text-primary-foreground fixed right-6 bottom-6 h-14 w-14 rounded-full shadow-lg lg:hidden"
+              className="bg-primary text-primary-foreground fixed right-6 bottom-6 h-14 w-14 rounded-full shadow-lg xl:hidden"
               size="icon"
               onClick={() => setSidebarOpen(true)}>
               <ListTodo className="h-6 w-6" />
@@ -387,10 +387,10 @@ export default function AITodosView() {
             {sidebarOpen && (
               <>
                 {/* Backdrop */}
-                <div className="fixed inset-0 z-40 bg-black/50 lg:hidden" onClick={() => setSidebarOpen(false)} />
+                <div className="fixed inset-0 z-40 bg-black/50 xl:hidden" onClick={() => setSidebarOpen(false)} />
 
                 {/* Sidebar */}
-                <div className="bg-background fixed top-0 right-0 bottom-0 z-50 flex w-80 flex-col shadow-xl lg:hidden">
+                <div className="bg-background fixed top-0 right-0 bottom-0 z-50 flex w-80 flex-col shadow-xl xl:hidden">
                   <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
                     <div>
                       <h2 className="font-semibold">{t('insights.pendingTodos', 'Pending todos')}</h2>
