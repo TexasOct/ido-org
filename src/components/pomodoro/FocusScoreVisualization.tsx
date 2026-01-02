@@ -1,12 +1,15 @@
 import { CircularProgress } from './CircularProgress'
 
 interface FocusScoreVisualizationProps {
-  score: number // 0.0-1.0
+  score: number // 0-100 scale
   size?: 'sm' | 'md' | 'lg'
   showLabel?: boolean
 }
 
 export function FocusScoreVisualization({ score, size = 'md', showLabel = true }: FocusScoreVisualizationProps) {
+  // Normalize score to 0-1 range if needed
+  const normalizedScore = score > 1 ? score / 100 : score
+
   // Map score to color
   const getColor = (score: number): string => {
     if (score >= 0.8) return 'hsl(142, 71%, 45%)' // green-600
@@ -44,10 +47,10 @@ export function FocusScoreVisualization({ score, size = 'md', showLabel = true }
   }
 
   const sizeConfig = getSizeConfig(size)
-  const percentage = Math.round(score * 100)
-  const color = getColor(score)
-  const textColorClass = getTextColorClass(score)
-  const levelText = getLevelText(score)
+  const percentage = Math.round(normalizedScore * 100)
+  const color = getColor(normalizedScore)
+  const textColorClass = getTextColorClass(normalizedScore)
+  const levelText = getLevelText(normalizedScore)
 
   return (
     <div className="flex flex-col items-center gap-2">
