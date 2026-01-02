@@ -870,15 +870,10 @@ export const en = {
         computing: 'Computing AI analysis...',
         dimensionScores: 'Focus Dimensions',
         dimensions: {
-          topic_consistency: 'Topic Consistency',
           topicConsistency: 'Topic Consistency',
-          duration_depth: 'Duration Depth',
           durationDepth: 'Duration Depth',
-          switching_rhythm: 'Switching Rhythm',
           switchingRhythm: 'Switching Rhythm',
-          work_quality: 'Work Quality',
           workQuality: 'Work Quality',
-          goal_orientation: 'Goal Orientation',
           goalOrientation: 'Goal Orientation'
         },
         workContext: 'Work Context',
@@ -888,7 +883,7 @@ export const en = {
           learning: 'Learning',
           research: 'Research',
           communication: 'Communication',
-          productivity_analysis: 'Productivity Analysis',
+          productivityAnalysis: 'Productivity Analysis',
           unclear: 'Mixed Activities'
         },
         focusedWork: 'High-Quality Focus',
