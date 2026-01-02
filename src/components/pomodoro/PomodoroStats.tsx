@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Card, CardContent } from '@/components/ui/card'
+import { getPomodoroStats } from '@/lib/client/apiClient'
 
 interface StatsData {
   completedToday: number
@@ -22,17 +23,40 @@ export function PomodoroStats() {
     focusMinutes: 0,
     focusHours: 0
   })
+  const [loading, setLoading] = useState(true)
 
-  // For now, we'll use placeholder values since the API might not exist yet
-  // This can be connected to real data later
+  // Fetch today's statistics
   useEffect(() => {
-    // TODO: Connect to real API when available
-    // For now, show zeros as placeholders
-    setStats({
-      completedToday: 0,
-      focusMinutes: 0,
-      focusHours: 0
-    })
+    const fetchStats = async () => {
+      try {
+        setLoading(true)
+        const today = new Date().toISOString().split('T')[0] // YYYY-MM-DD format
+
+        const result = await getPomodoroStats({ date: today })
+
+        if (result.success && result.data) {
+          const focusHours = Math.floor(result.data.totalFocusMinutes / 60)
+
+          setStats({
+            completedToday: result.data.completedCount,
+            focusMinutes: result.data.totalFocusMinutes,
+            focusHours: focusHours
+          })
+        }
+      } catch (error) {
+        console.error('[PomodoroStats] Failed to fetch statistics:', error)
+        // Keep showing zeros on error
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    fetchStats()
+
+    // Refresh stats every minute to catch new completed sessions
+    const interval = setInterval(fetchStats, 60000)
+
+    return () => clearInterval(interval)
   }, [])
 
   const statItems = [
@@ -56,7 +80,7 @@ export function PomodoroStats() {
         <div className="divide-border grid grid-cols-3 divide-x">
           {statItems.map((item, index) => (
             <div key={index} className="flex flex-col items-center gap-1 px-4">
-              <span className="text-3xl font-bold tabular-nums">{item.value}</span>
+              <span className="text-3xl font-bold tabular-nums">{loading ? '-' : item.value}</span>
               <span className="text-muted-foreground text-xs">{item.label}</span>
             </div>
           ))}
