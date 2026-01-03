@@ -28,9 +28,19 @@ class PipelineCoordinator:
             config: Configuration dictionary
         """
         self.config = config
-        self.processing_interval = config.get("monitoring.processing_interval", 30)
-        self.window_size = config.get("monitoring.window_size", 60)
-        self.capture_interval = config.get("monitoring.capture_interval", 1.0)
+
+        # Access nested config correctly
+        monitoring_config = config.get("monitoring", {})
+        self.processing_interval = monitoring_config.get("processing_interval", 30)
+        self.window_size = monitoring_config.get("window_size", 60)
+        self.capture_interval = monitoring_config.get("capture_interval", 1.0)
+
+        # Event-driven processing configuration
+        self.enable_event_driven = True  # Enable event-driven processing
+        self.processing_threshold = 20  # Trigger processing when 20+ records accumulated
+        self.fallback_check_interval = 300  # Fallback check every 5 minutes (when no events)
+        self._pending_records_count = 0  # Track pending records
+        self._process_trigger = asyncio.Event()  # Event to trigger processing
 
         # Initialize managers (lazy import to avoid circular dependencies)
         self.perception_manager = None
@@ -527,92 +537,140 @@ class PipelineCoordinator:
             self._last_processed_timestamp = None
 
     async def _processing_loop(self) -> None:
-        """Scheduled processing loop"""
+        """Event-driven processing loop with fallback polling"""
         try:
-            # First iteration has shorter delay, then use normal interval
-            first_iteration = True
             last_ttl_cleanup = datetime.now()  # Track last TTL cleanup time
+            last_fallback_check = datetime.now()  # Track last fallback check
+
+            logger.info(
+                f"Processing loop started: event_driven={'enabled' if self.enable_event_driven else 'disabled'}, "
+                f"threshold={self.processing_threshold} records, "
+                f"fallback_interval={self.fallback_check_interval}s"
+            )
 
             while self.is_running:
-                # First iteration starts quickly (100ms), then use configured interval
-                wait_time = 0.1 if first_iteration else self.processing_interval
-                await asyncio.sleep(wait_time)
+                try:
+                    if self.enable_event_driven:
+                        # Wait for event trigger OR fallback timeout
+                        try:
+                            await asyncio.wait_for(
+                                self._process_trigger.wait(),
+                                timeout=self.fallback_check_interval
+                            )
+                            self._process_trigger.clear()
+                            logger.debug("Processing triggered by event")
+                        except asyncio.TimeoutError:
+                            # Fallback check after timeout
+                            now = datetime.now()
+                            if (now - last_fallback_check).total_seconds() >= self.fallback_check_interval:
+                                logger.debug(f"Fallback check after {self.fallback_check_interval}s timeout")
+                                last_fallback_check = now
+                            else:
+                                continue
+                    else:
+                        # Legacy polling mode
+                        await asyncio.sleep(self.processing_interval)
 
-                if not self.is_running:
-                    break
+                    if not self.is_running:
+                        break
 
-                first_iteration = False
+                    # Skip processing if paused (system sleep)
+                    if self.is_paused:
+                        logger.debug("Coordinator paused, skipping processing cycle")
+                        continue
 
-                # Skip processing if paused (system sleep)
-                if self.is_paused:
-                    logger.debug("Coordinator paused, skipping processing cycle")
-                    continue
+                    # Periodic TTL cleanup for memory-only images
+                    now = datetime.now()
+                    if (now - last_ttl_cleanup).total_seconds() >= self.processing_interval:
+                        try:
+                            if self.processing_pipeline and self.processing_pipeline.image_manager:
+                                evicted = self.processing_pipeline.image_manager.cleanup_expired_memory_images()
+                                if evicted > 0:
+                                    logger.debug(f"TTL cleanup: evicted {evicted} expired memory-only images")
+                            last_ttl_cleanup = now
+                        except Exception as e:
+                            logger.error(f"TTL cleanup failed: {e}")
 
-                # Periodic TTL cleanup for memory-only images
-                now = datetime.now()
-                if (now - last_ttl_cleanup).total_seconds() >= self.processing_interval:
-                    try:
-                        if self.processing_pipeline and self.processing_pipeline.image_manager:
-                            evicted = self.processing_pipeline.image_manager.cleanup_expired_memory_images()
-                            if evicted > 0:
-                                logger.debug(f"TTL cleanup: evicted {evicted} expired memory-only images")
-                        last_ttl_cleanup = now
-                    except Exception as e:
-                        logger.error(f"TTL cleanup failed: {e}")
+                    if not self.perception_manager:
+                        logger.error("Perception manager not initialized")
+                        raise Exception("Perception manager not initialized")
 
-                if not self.perception_manager:
-                    logger.error("Perception manager not initialized")
-                    raise Exception("Perception manager not initialized")
+                    if not self.processing_pipeline:
+                        logger.error("Processing pipeline not initialized")
+                        raise Exception("Processing pipeline not initialized")
 
-                if not self.processing_pipeline:
-                    logger.error("Processing pipeline not initialized")
-                    raise Exception("Processing pipeline not initialized")
+                    # Fetch records newer than the last processed timestamp to avoid duplicates
+                    end_time = datetime.now()
+                    if self._last_processed_timestamp is None:
+                        start_time = end_time - timedelta(seconds=self.processing_interval)
+                    else:
+                        start_time = self._last_processed_timestamp
 
-                # Fetch records newer than the last processed timestamp to avoid duplicates
-                end_time = datetime.now()
-                if self._last_processed_timestamp is None:
-                    start_time = end_time - timedelta(seconds=self.processing_interval)
-                else:
-                    start_time = self._last_processed_timestamp
-
-                records = self.perception_manager.get_records_in_timeframe(
-                    start_time, end_time
-                )
-
-                if self._last_processed_timestamp is not None:
-                    records = [
-                        record
-                        for record in records
-                        if record.timestamp > self._last_processed_timestamp
-                    ]
-
-                if records:
-                    logger.debug(f"Starting to process {len(records)} records")
-
-                    # Process records
-                    result = await self.processing_pipeline.process_raw_records(records)
-
-                    # Update last processed timestamp so future cycles skip these records
-                    latest_record_time = max(
-                        (record.timestamp for record in records), default=None
+                    records = self.perception_manager.get_records_in_timeframe(
+                        start_time, end_time
                     )
-                    if latest_record_time:
-                        self._last_processed_timestamp = latest_record_time
 
-                    # Update statistics
-                    self.stats["total_processing_cycles"] += 1
-                    self.stats["last_processing_time"] = datetime.now()
+                    if self._last_processed_timestamp is not None:
+                        records = [
+                            record
+                            for record in records
+                            if record.timestamp > self._last_processed_timestamp
+                        ]
 
-                    logger.debug(
-                        f"Processing completed: {len(result.get('events', []))} events, {len(result.get('activities', []))} activities"
-                    )
-                else:
-                    logger.debug("No new records to process")
+                    if records:
+                        logger.info(f"Processing {len(records)} records (triggered by: {'event' if self.enable_event_driven else 'polling'})")
+
+                        # Reset pending count
+                        self._pending_records_count = 0
+
+                        # Process records
+                        result = await self.processing_pipeline.process_raw_records(records)
+
+                        # Update last processed timestamp so future cycles skip these records
+                        latest_record_time = max(
+                            (record.timestamp for record in records), default=None
+                        )
+                        if latest_record_time:
+                            self._last_processed_timestamp = latest_record_time
+
+                        # Update statistics
+                        self.stats["total_processing_cycles"] += 1
+                        self.stats["last_processing_time"] = datetime.now()
+
+                        logger.debug(
+                            f"Processing completed: {len(result.get('events', []))} events, {len(result.get('activities', []))} activities"
+                        )
+                    # No "else" logging when no records to reduce noise
+
+                except Exception as loop_error:
+                    logger.error(f"Error in processing loop iteration: {loop_error}", exc_info=True)
+                    # Continue running despite errors
 
         except asyncio.CancelledError:
             logger.debug("Processing loop cancelled")
         except Exception as e:
-            logger.error(f"Processing loop failed: {e}")
+            logger.error(f"Processing loop failed: {e}", exc_info=True)
+
+    def notify_records_available(self, count: int = 1) -> None:
+        """
+        Notify coordinator that new records are available (called by PerceptionManager)
+
+        This enables event-driven processing instead of polling.
+
+        Args:
+            count: Number of new records added
+        """
+        if not self.enable_event_driven:
+            return
+
+        self._pending_records_count += count
+
+        # Trigger processing if threshold reached
+        if self._pending_records_count >= self.processing_threshold:
+            logger.debug(
+                f"Triggering processing: {self._pending_records_count} records >= threshold {self.processing_threshold}"
+            )
+            self._process_trigger.set()
 
     def get_stats(self) -> Dict[str, Any]:
         """Get coordinator statistics"""
@@ -791,18 +849,13 @@ class PipelineCoordinator:
         # except Exception as e:
         #     logger.error(f"Failed to resume EventAgent: {e}")
 
-        # Resume SessionAgent and trigger immediate activity aggregation
+        # Resume SessionAgent (no need to trigger aggregation, already done per work phase)
         try:
             if self.session_agent:
                 self.session_agent.resume()
-                logger.debug("✓ SessionAgent resumed")
-
-                # Trigger immediate activity aggregation for Pomodoro session
-                logger.info("→ Triggering activity aggregation for Pomodoro session...")
-                await self.session_agent._aggregate_sessions()
-                logger.info("✓ Activity aggregation complete for Pomodoro session")
+                logger.debug("✓ SessionAgent resumed (activities already aggregated per work phase)")
         except Exception as e:
-            logger.error(f"Failed to resume SessionAgent or aggregate activities: {e}")
+            logger.error(f"Failed to resume SessionAgent: {e}")
 
         # Notify perception manager to exit Pomodoro mode
         if self.perception_manager:

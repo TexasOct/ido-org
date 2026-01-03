@@ -272,8 +272,9 @@ def get_db() -> DatabaseManager:
 
         config = get_config()
 
-        # Read database path from config.toml
-        configured_path = config.get("database.path", "")
+        # Read database path from config.toml (access nested config correctly)
+        database_config = config.get("database", {})
+        configured_path = database_config.get("path", "")
 
         # If path is configured and not empty, use it; otherwise use default
         if configured_path and configured_path.strip():

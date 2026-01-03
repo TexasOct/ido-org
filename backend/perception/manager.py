@@ -125,6 +125,16 @@ class PerceptionManager:
         except Exception as e:
             logger.error(f"Failed to pause capturers: {e}")
 
+    def _notify_record_available(self) -> None:
+        """Notify coordinator that a new record is available (event-driven triggering)"""
+        try:
+            from core.coordinator import get_coordinator
+            coordinator = get_coordinator()
+            if coordinator:
+                coordinator.notify_records_available(count=1)
+        except Exception as e:
+            logger.error(f"Failed to notify coordinator: {e}")
+
     def _on_screen_unlock(self) -> None:
         """Screen unlock/system wake callback"""
         if not self.is_running or not self.is_paused:
@@ -169,6 +179,9 @@ class PerceptionManager:
             if self.on_data_captured:
                 self.on_data_captured(record)
 
+            # Notify coordinator that a new record is available
+            self._notify_record_available()
+
             logger.debug(
                 f"Keyboard event recorded: {record.data.get('key', 'unknown')}"
             )
@@ -194,6 +207,9 @@ class PerceptionManager:
 
                 if self.on_data_captured:
                     self.on_data_captured(record)
+
+                # Notify coordinator that a new record is available
+                self._notify_record_available()
 
                 logger.debug(
                     f"Mouse event recorded: {record.data.get('action', 'unknown')}"
@@ -263,6 +279,9 @@ class PerceptionManager:
 
             if self.on_data_captured:
                 self.on_data_captured(record)
+
+            # Notify coordinator that a new record is available
+            self._notify_record_available()
 
             logger.debug(
                 f"Screenshot recorded: {record.data.get('width', 0)}x{record.data.get('height', 0)}"
@@ -688,6 +707,9 @@ class PerceptionManager:
             # Batch processed successfully
             on_completed(True)
             logger.debug(f"✓ Batch of {len(raw_records)} records processed successfully")
+
+            # Note: _on_screenshot_captured already calls _notify_record_available() for each record
+            # No need to notify again here
 
         except Exception as e:
             logger.error(f"Failed to process batch: {e}", exc_info=True)

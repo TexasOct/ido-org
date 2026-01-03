@@ -30,7 +30,7 @@ class ImageManager:
             str
         ] = None,  # Screenshot storage root directory (override config)
         enable_memory_first: bool = True,  # Enable memory-first storage strategy
-        memory_ttl: int = 75,  # TTL for memory-only images (seconds)
+        memory_ttl: int = 180,  # TTL for memory-only images (seconds) - Updated to 180s to meet recommended minimum
     ):
         # Try to read custom path from configuration
         try:
@@ -698,7 +698,7 @@ def get_image_manager() -> ImageManager:
     """Get image manager singleton"""
     global _image_manager
     if _image_manager is None:
-        _image_manager = ImageManager()
+        _image_manager = init_image_manager()
     return _image_manager
 
 
@@ -713,15 +713,25 @@ def init_image_manager(**kwargs) -> ImageManager:
 
             config = get_config().load()
 
-            enable_memory_first = config.get("image.enable_memory_first", True)
-            processing_interval = config.get("monitoring.processing_interval", 30)
-            multiplier = config.get("image.memory_ttl_multiplier", 2.5)
-            ttl_min = config.get("image.memory_ttl_min", 60)
-            ttl_max = config.get("image.memory_ttl_max", 120)
+            # Access nested config values correctly
+            image_config = config.get("image", {})
+            monitoring_config = config.get("monitoring", {})
+
+            enable_memory_first = image_config.get("enable_memory_first", True)
+            processing_interval = monitoring_config.get("processing_interval", 30)
+            multiplier = image_config.get("memory_ttl_multiplier", 2.5)
+            ttl_min = image_config.get("memory_ttl_min", 60)
+            ttl_max = image_config.get("memory_ttl_max", 300)
 
             # Calculate dynamic TTL
             calculated_ttl = int(processing_interval * multiplier)
             memory_ttl = max(ttl_min, min(ttl_max, calculated_ttl))
+
+            logger.debug(
+                f"ImageManager config: processing_interval={processing_interval}, "
+                f"multiplier={multiplier}, ttl_min={ttl_min}, ttl_max={ttl_max}, "
+                f"calculated_ttl={calculated_ttl}, final_memory_ttl={memory_ttl}"
+            )
 
             if "enable_memory_first" not in kwargs:
                 kwargs["enable_memory_first"] = enable_memory_first
@@ -730,10 +740,10 @@ def init_image_manager(**kwargs) -> ImageManager:
 
             logger.info(
                 f"ImageManager: memory_first={enable_memory_first}, "
-                f"TTL={memory_ttl}s (processing_interval={processing_interval}s)"
+                f"TTL={memory_ttl}s (processing_interval={processing_interval}s * multiplier={multiplier})"
             )
         except Exception as e:
-            logger.warning(f"Failed to calculate memory TTL from config: {e}")
+            logger.warning(f"Failed to calculate memory TTL from config: {e}", exc_info=True)
 
     _image_manager = ImageManager(**kwargs)
     return _image_manager

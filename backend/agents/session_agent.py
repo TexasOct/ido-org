@@ -41,6 +41,7 @@ class SessionAgent:
         min_event_actions: int = 2,  # Minimum 2 actions per event
         merge_time_gap_tolerance: int = 300,  # 5 minutes tolerance for adjacent activities
         merge_similarity_threshold: float = 0.6,  # Minimum similarity score for merging
+        enable_periodic_aggregation: bool = False,  # Disabled by default, only use Pomodoro-triggered aggregation
     ):
         """
         Initialize SessionAgent
@@ -53,6 +54,7 @@ class SessionAgent:
             min_event_actions: Minimum number of actions per event (default 2)
             merge_time_gap_tolerance: Max time gap (seconds) to consider for merging adjacent activities (default 300s/5min)
             merge_similarity_threshold: Minimum semantic similarity score (0-1) required for merging (default 0.6)
+            enable_periodic_aggregation: Whether to enable periodic aggregation (default False, only Pomodoro-triggered)
         """
         self.aggregation_interval = aggregation_interval
         self.time_window_min = time_window_min
@@ -61,6 +63,7 @@ class SessionAgent:
         self.min_event_actions = min_event_actions
         self.merge_time_gap_tolerance = merge_time_gap_tolerance
         self.merge_similarity_threshold = merge_similarity_threshold
+        self.enable_periodic_aggregation = enable_periodic_aggregation
 
         # Initialize components
         self.db = get_db()
@@ -81,7 +84,8 @@ class SessionAgent:
         }
 
         logger.debug(
-            f"SessionAgent initialized (interval: {aggregation_interval}s, "
+            f"SessionAgent initialized (periodic_aggregation: {'enabled' if enable_periodic_aggregation else 'disabled'}, "
+            f"interval: {aggregation_interval}s, "
             f"time_window: {time_window_min}-{time_window_max}min, "
             f"quality_filter: min_duration={min_event_duration_seconds}s, min_actions={min_event_actions}, "
             f"merge_config: gap_tolerance={merge_time_gap_tolerance}s, similarity_threshold={merge_similarity_threshold})"
@@ -99,14 +103,18 @@ class SessionAgent:
 
         self.is_running = True
 
-        # Start aggregation task
-        self.aggregation_task = asyncio.create_task(
-            self._periodic_session_aggregation()
-        )
-
-        logger.info(
-            f"SessionAgent started (aggregation interval: {self.aggregation_interval}s)"
-        )
+        # Only start periodic aggregation if enabled
+        if self.enable_periodic_aggregation:
+            self.aggregation_task = asyncio.create_task(
+                self._periodic_session_aggregation()
+            )
+            logger.info(
+                f"SessionAgent started with periodic aggregation (interval: {self.aggregation_interval}s)"
+            )
+        else:
+            logger.info(
+                "SessionAgent started in Pomodoro-only mode (periodic aggregation disabled)"
+            )
 
     async def stop(self):
         """Stop the session agent"""
@@ -1363,6 +1371,7 @@ class SessionAgent:
         """Get statistics information"""
         return {
             "is_running": self.is_running,
+            "enable_periodic_aggregation": self.enable_periodic_aggregation,
             "aggregation_interval": self.aggregation_interval,
             "time_window_min": self.time_window_min,
             "time_window_max": self.time_window_max,
