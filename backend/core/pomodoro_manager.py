@@ -10,7 +10,7 @@ Responsibilities:
 
 import asyncio
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 from core.db import get_db
@@ -223,22 +223,39 @@ class PomodoroManager:
                 new_phase = "break"
                 next_duration = break_duration
 
-                # ★ Trigger activity aggregation for completed work phase (async, non-blocking) ★
+                # Calculate phase timing
                 phase_start_time_str = session.get("phase_start_time")
                 if phase_start_time_str:
                     phase_start_time = datetime.fromisoformat(phase_start_time_str)
                 else:
                     # Fallback to session start time if phase start time not available
-                    phase_start_time = datetime.fromisoformat(session.get("start_time", datetime.now().isoformat()))
+                    phase_start_time = datetime.fromisoformat(
+                        session.get("start_time", datetime.now().isoformat())
+                    )
                 phase_end_time = datetime.now()
 
-                # Run aggregation in background, don't block phase transition
+                # ★ NEW: Create phase record BEFORE triggering aggregation ★
+                phase_id = await self.db.work_phases.create(
+                    session_id=session_id,
+                    phase_number=current_round,
+                    phase_start_time=phase_start_time.isoformat(),
+                    phase_end_time=phase_end_time.isoformat(),
+                    status="pending",
+                )
+
+                logger.info(
+                    f"Created phase record: session={session_id}, "
+                    f"phase={current_round}, id={phase_id}"
+                )
+
+                # Trigger aggregation with phase_id
                 asyncio.create_task(
                     self._aggregate_work_phase_activities(
                         session_id=session_id,
                         work_phase=current_round,
                         phase_start_time=phase_start_time,
                         phase_end_time=phase_end_time,
+                        phase_id=phase_id,
                     )
                 )
 
@@ -464,40 +481,86 @@ class PomodoroManager:
                         f"actual_work={actual_work_minutes}min (based on {completed_rounds} completed rounds)"
                     )
 
-                # ★ If ending during work phase, trigger activity aggregation and update completed_rounds ★
-                if current_phase == "work":
-                    current_round = session.get("current_round", 1)
-                    phase_start_time_str = session.get("phase_start_time")
+                # ========== PARALLEL PHASE PROCESSING ==========
+                # Identify all work phases that occurred during session
+                current_round = session.get("current_round", 1)
 
-                    if phase_start_time_str:
-                        phase_start_time = datetime.fromisoformat(phase_start_time_str)
-                    else:
-                        # Fallback to session start if phase start time not available
-                        phase_start_time = datetime.fromisoformat(
-                            session.get("start_time", datetime.now().isoformat())
-                        )
+                work_phases_to_process = list(range(1, completed_rounds + 1))
 
-                    logger.info(
-                        f"Manual session end during work phase {current_round}, "
-                        f"triggering activity aggregation (async)"
-                    )
-
+                # Include current work phase if session ended during work
+                if current_phase == "work" and current_round not in work_phases_to_process:
+                    work_phases_to_process.append(current_round)
                     # Increment completed_rounds to reflect this work phase
-                    new_completed_rounds = completed_rounds + 1
                     await self.db.pomodoro_sessions.update(
                         session_id=session_id,
-                        completed_rounds=new_completed_rounds,
+                        completed_rounds=completed_rounds + 1,
                     )
 
-                    # Trigger activity aggregation in background (non-blocking)
-                    asyncio.create_task(
-                        self._aggregate_work_phase_activities(
-                            session_id=session_id,
-                            work_phase=current_round,
-                            phase_start_time=phase_start_time,
-                            phase_end_time=end_time,
+                logger.info(
+                    f"Session termination: processing {len(work_phases_to_process)} work phases "
+                    f"in parallel: {work_phases_to_process}"
+                )
+
+                # Create phase records and trigger parallel aggregation
+                break_duration = session.get("break_duration_minutes", 5)
+                start_time_str = session.get("start_time")
+                if start_time_str:
+                    session_start = datetime.fromisoformat(start_time_str)
+
+                    aggregation_tasks = []
+                    for phase_num in work_phases_to_process:
+                        # Calculate phase timing
+                        phase_offset_minutes = (phase_num - 1) * (work_duration + break_duration)
+                        phase_start = session_start + timedelta(minutes=phase_offset_minutes)
+                        phase_end = phase_start + timedelta(minutes=work_duration)
+
+                        # Use actual end time for last phase
+                        if phase_num == max(work_phases_to_process):
+                            phase_end = min(phase_end, end_time)
+
+                        # Check if phase record already exists
+                        existing_phase = await self.db.work_phases.get_by_session_and_phase(
+                            session_id, phase_num
                         )
+
+                        # Skip if already completed or processing
+                        if existing_phase and existing_phase["status"] in ("completed", "processing"):
+                            logger.info(
+                                f"Phase {phase_num} already {existing_phase['status']}, skipping"
+                            )
+                            continue
+
+                        # Create or get phase record
+                        if existing_phase:
+                            phase_id = existing_phase["id"]
+                        else:
+                            phase_id = await self.db.work_phases.create(
+                                session_id=session_id,
+                                phase_number=phase_num,
+                                phase_start_time=phase_start.isoformat(),
+                                phase_end_time=phase_end.isoformat(),
+                                status="pending",
+                            )
+
+                        # Create parallel task (don't await)
+                        task = asyncio.create_task(
+                            self._aggregate_work_phase_activities(
+                                session_id=session_id,
+                                work_phase=phase_num,
+                                phase_start_time=phase_start,
+                                phase_end_time=phase_end,
+                                phase_id=phase_id,
+                            )
+                        )
+                        aggregation_tasks.append(task)
+
+                    logger.info(
+                        f"Triggered parallel aggregation for {len(aggregation_tasks)} work phases"
                     )
+                else:
+                    logger.warning("Session start_time missing, skipping parallel phase aggregation")
+                # Don't await tasks - let them run in background
+                # ========== END PARALLEL PHASE PROCESSING ==========
             else:
                 # Fallback: use elapsed time if we can't get session data
                 actual_work_minutes = int(elapsed_duration)
@@ -929,72 +992,170 @@ class PomodoroManager:
 
         return session_info
 
+    def _classify_aggregation_error(self, error: Exception) -> str:
+        """
+        Classify aggregation errors for better user feedback.
+
+        Returns:
+            - 'no_actions_found': No user activity during phase
+            - 'llm_clustering_failed': LLM API call failed
+            - 'supervisor_validation_failed': Activity validation failed
+            - 'database_save_failed': Database operation failed
+            - 'unknown_error': Unclassified error
+        """
+        error_str = str(error).lower()
+
+        if "no actions found" in error_str or "no action" in error_str:
+            return "no_actions_found"
+        elif "clustering" in error_str or "llm" in error_str or "api" in error_str:
+            return "llm_clustering_failed"
+        elif "supervisor" in error_str or "validation" in error_str:
+            return "supervisor_validation_failed"
+        elif "database" in error_str or "sql" in error_str:
+            return "database_save_failed"
+        else:
+            return "unknown_error"
+
     async def _aggregate_work_phase_activities(
         self,
         session_id: str,
         work_phase: int,
         phase_start_time: datetime,
         phase_end_time: datetime,
+        phase_id: Optional[str] = None,
     ) -> None:
         """
-        Trigger SessionAgent to aggregate activities for a completed work phase
+        Aggregate actions into activities for a work phase WITH AUTOMATIC RETRY.
 
-        This method is called when a work phase ends (work → break transition).
-        It delegates to SessionAgent.aggregate_work_phase() to create activities
-        and emits an event to notify the frontend.
+        Retry Strategy:
+        - Attempt 1: Immediate
+        - Attempt 2: After 5 seconds
+        - Attempt 3: After 15 seconds
+        - Attempt 4: After 45 seconds
+        - After 4 attempts: Mark as 'failed'
 
         Args:
-            session_id: Pomodoro session ID
-            work_phase: Work phase number (1-based)
-            phase_start_time: When this work phase started
-            phase_end_time: When this work phase ended
+            session_id: Session ID
+            work_phase: Phase number (1-4)
+            phase_start_time: Phase start time
+            phase_end_time: Phase end time
+            phase_id: Existing phase record ID (optional)
         """
+        MAX_RETRIES = 3
+        RETRY_DELAYS = [5, 15, 45]  # seconds
+
         try:
-            logger.info(
-                f"Triggering work phase aggregation: session={session_id}, "
-                f"phase={work_phase}, "
-                f"duration={(phase_end_time - phase_start_time).total_seconds() / 60:.1f}min"
-            )
-
-            # Get SessionAgent from coordinator
-            session_agent = self.coordinator.session_agent
-            if not session_agent:
-                logger.warning(
-                    "SessionAgent not available for work phase aggregation. "
-                    "Activities will not be generated for this work phase."
+            # Get or create phase record
+            if not phase_id:
+                existing_phase = await self.db.work_phases.get_by_session_and_phase(
+                    session_id, work_phase
                 )
-                return
+                if existing_phase:
+                    phase_id = existing_phase["id"]
+                else:
+                    phase_id = await self.db.work_phases.create(
+                        session_id=session_id,
+                        phase_number=work_phase,
+                        phase_start_time=phase_start_time.isoformat(),
+                        phase_end_time=phase_end_time.isoformat(),
+                        status="pending",
+                    )
 
-            # Trigger activity aggregation
-            activities = await session_agent.aggregate_work_phase(
-                session_id=session_id,
-                work_phase=work_phase,
-                phase_start_time=phase_start_time,
-                phase_end_time=phase_end_time,
-            )
+            # RETRY LOOP
+            for attempt in range(MAX_RETRIES + 1):
+                try:
+                    # Update status to processing
+                    await self.db.work_phases.update_status(
+                        phase_id, "processing", None, attempt
+                    )
 
-            activity_count = len(activities)
-            logger.info(
-                f"Work phase aggregation completed: {activity_count} activities "
-                f"created/updated for phase {work_phase}"
-            )
+                    logger.info(
+                        f"Processing work phase: session={session_id}, "
+                        f"phase={work_phase}, attempt={attempt + 1}/{MAX_RETRIES + 1}"
+                    )
 
-            # Emit event to frontend to notify work phase completion
-            from core.events import emit_pomodoro_work_phase_completed
+                    # Get SessionAgent from coordinator
+                    session_agent = self.coordinator.session_agent
+                    if not session_agent:
+                        raise ValueError("SessionAgent not available")
 
-            emit_pomodoro_work_phase_completed(
-                session_id=session_id,
-                work_phase=work_phase,
-                activity_count=activity_count,
-            )
+                    # Delegate to SessionAgent for actual aggregation
+                    activities = await session_agent.aggregate_work_phase(
+                        session_id=session_id,
+                        work_phase=work_phase,
+                        phase_start_time=phase_start_time,
+                        phase_end_time=phase_end_time,
+                    )
+
+                    # Validate result
+                    if not activities:
+                        raise ValueError("No actions found for work phase")
+
+                    # SUCCESS - Mark completed
+                    await self.db.work_phases.mark_completed(phase_id, len(activities))
+
+                    logger.info(
+                        f"✓ Work phase aggregation completed: "
+                        f"session={session_id}, phase={work_phase}, "
+                        f"activities={len(activities)}"
+                    )
+
+                    # Emit success event
+                    from core.events import emit_pomodoro_work_phase_completed
+
+                    emit_pomodoro_work_phase_completed(session_id, work_phase, len(activities))
+
+                    return  # Exit retry loop on success
+
+                except Exception as e:
+                    # Classify error for better reporting
+                    error_type = self._classify_aggregation_error(e)
+                    error_message = f"{error_type}: {str(e)}"
+
+                    logger.warning(
+                        f"Work phase aggregation attempt {attempt + 1} failed: "
+                        f"{error_message}"
+                    )
+
+                    if attempt < MAX_RETRIES:
+                        # Schedule retry with exponential backoff
+                        retry_delay = RETRY_DELAYS[attempt]
+                        new_retry_count = await self.db.work_phases.increment_retry_count(
+                            phase_id
+                        )
+
+                        await self.db.work_phases.update_status(
+                            phase_id, "pending", error_message, new_retry_count
+                        )
+
+                        logger.info(
+                            f"Retrying work phase in {retry_delay}s "
+                            f"(retry {new_retry_count}/{MAX_RETRIES})"
+                        )
+
+                        await asyncio.sleep(retry_delay)
+                    else:
+                        # All retries exhausted
+                        await self.db.work_phases.update_status(
+                            phase_id, "failed", error_message, MAX_RETRIES + 1
+                        )
+
+                        logger.error(
+                            f"✗ Work phase aggregation failed after {MAX_RETRIES + 1} attempts: "
+                            f"session={session_id}, phase={work_phase}, error={error_message}"
+                        )
+
+                        # Emit failure event
+                        from core.events import emit_pomodoro_work_phase_failed
+
+                        emit_pomodoro_work_phase_failed(session_id, work_phase, error_message)
+
+                        return  # Don't raise - allow other phases to continue
 
         except Exception as e:
-            # Don't crash the session flow if aggregation fails
-            # Log error but allow phase switch to proceed
+            # Outer exception handler (should rarely trigger)
             logger.error(
-                f"Failed to aggregate work phase activities "
-                f"(session: {session_id}, phase: {work_phase}): {e}",
-                exc_info=True,
+                f"Unexpected error in work phase aggregation: {e}", exc_info=True
             )
 
     def get_current_session_id(self) -> Optional[str]:

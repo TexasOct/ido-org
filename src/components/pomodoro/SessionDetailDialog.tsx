@@ -1,6 +1,17 @@
 import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
-import { Clock, Activity, TrendingUp, Trash2, Loader2, Sparkles, ThumbsUp, AlertCircle, Lightbulb } from 'lucide-react'
+import {
+  Clock,
+  Activity,
+  TrendingUp,
+  Trash2,
+  Loader2,
+  Sparkles,
+  ThumbsUp,
+  AlertCircle,
+  Lightbulb,
+  RefreshCw
+} from 'lucide-react'
 import { useState, useCallback } from 'react'
 import { toast } from 'sonner'
 
@@ -20,7 +31,7 @@ import { Badge } from '@/components/ui/badge'
 import { FocusScoreVisualization } from './FocusScoreVisualization'
 import { SessionActivityTimeline } from './SessionActivityTimeline'
 import { LinkActivitiesDialog } from './LinkActivitiesDialog'
-import { getPomodoroSessionDetail, deletePomodoroSession } from '@/lib/client/apiClient'
+import { getPomodoroSessionDetail, deletePomodoroSession, retryLlmEvaluation } from '@/lib/client/apiClient'
 
 interface SessionDetailDialogProps {
   sessionId: string | null
@@ -33,6 +44,7 @@ export function SessionDetailDialog({ sessionId, open, onOpenChange, onDeleted }
   const { t } = useTranslation()
   const [isDeleting, setIsDeleting] = useState(false)
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
+  const [retryingLLM, setRetryingLLM] = useState(false)
 
   // Fetch detailed data for selected session
   const { data: sessionDetail, refetch: refetchDetail } = useQuery({
@@ -68,6 +80,28 @@ export function SessionDetailDialog({ sessionId, open, onOpenChange, onDeleted }
       setIsDeleting(false)
     }
   }, [sessionId, isDeleting, onDeleted, onOpenChange, t])
+
+  const handleRetryLLM = useCallback(async () => {
+    if (!sessionId || retryingLLM) return
+
+    setRetryingLLM(true)
+    try {
+      const result = await retryLlmEvaluation({ sessionId })
+
+      if (result.success) {
+        toast.success(t('pomodoro.review.llmRetrySuccess'))
+        // Refresh after 3 seconds to give backend time to process
+        setTimeout(() => refetchDetail(), 3000)
+      } else {
+        toast.error(t('pomodoro.review.llmRetryError'))
+      }
+    } catch (error) {
+      console.error('[SessionDetailDialog] Failed to retry LLM evaluation:', error)
+      toast.error(t('pomodoro.review.llmRetryError'))
+    } finally {
+      setRetryingLLM(false)
+    }
+  }, [sessionId, retryingLLM, refetchDetail, t])
 
   // Skeleton loading component
   const LoadingSkeleton = () => (
@@ -208,10 +242,21 @@ export function SessionDetailDialog({ sessionId, open, onOpenChange, onDeleted }
                 {detailData.llmFocusEvaluation && (
                   <Card>
                     <CardHeader>
-                      <CardTitle className="flex items-center gap-2 text-base">
-                        <Sparkles className="h-4 w-4" />
-                        {t('pomodoro.review.aiAnalysis.title')}
-                      </CardTitle>
+                      <div className="flex items-center justify-between">
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <Sparkles className="h-4 w-4" />
+                          {t('pomodoro.review.aiAnalysis.title')}
+                        </CardTitle>
+
+                        <Button size="sm" variant="outline" onClick={handleRetryLLM} disabled={retryingLLM}>
+                          {retryingLLM ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
+                          )}
+                          <span className="ml-1">{t('pomodoro.review.llmRetry')}</span>
+                        </Button>
+                      </div>
                     </CardHeader>
                     <CardContent>
                       <div className="mb-4 flex items-center gap-2">

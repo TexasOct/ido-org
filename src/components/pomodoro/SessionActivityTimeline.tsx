@@ -3,11 +3,23 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FocusScoreVisualization } from './FocusScoreVisualization'
 import { ActionCard } from '@/components/activity/ActionCard'
-import { Clock, Hash, RefreshCw, ChevronDown, ChevronRight, Loader2, Layers, Coffee } from 'lucide-react'
+import {
+  Clock,
+  Hash,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  Loader2,
+  Layers,
+  Coffee,
+  Activity as ActivityIcon,
+  AlertCircle
+} from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { toast } from 'sonner'
-import { retryWorkPhaseAggregation, getActionsByActivity } from '@/lib/client/apiClient'
+import { useQuery } from '@tanstack/react-query'
+import { retryWorkPhaseAggregation, getActionsByActivity, getSessionPhases } from '@/lib/client/apiClient'
 import type { Action } from '@/lib/types/activity'
 
 interface Activity {
@@ -47,7 +59,7 @@ interface SessionActivityTimelineProps {
 export function SessionActivityTimeline({
   sessionId,
   activities,
-  totalRounds,
+  totalRounds: _totalRounds, // Keep for backward compatibility but don't use
   phaseTimeline = [],
   onRetrySuccess
 }: SessionActivityTimelineProps) {
@@ -56,6 +68,17 @@ export function SessionActivityTimeline({
   const [expandedActivityId, setExpandedActivityId] = useState<string | null>(null)
   const [actionsMap, setActionsMap] = useState<Record<string, Action[]>>({})
   const [loadingActions, setLoadingActions] = useState<string | null>(null)
+
+  // Query phase statuses
+  const { data: phaseStatuses, refetch: refetchPhases } = useQuery({
+    queryKey: ['pomodoro-phase-statuses', sessionId],
+    queryFn: async () => {
+      const result = await getSessionPhases({ sessionId })
+      return result.data || []
+    },
+    refetchInterval: 5000, // Poll every 5s while processing
+    enabled: !!sessionId
+  })
 
   // Handle retry work phase aggregation
   const handleRetryWorkPhase = async (workPhase: number) => {
@@ -68,10 +91,11 @@ export function SessionActivityTimeline({
 
       if (result.success) {
         toast.success(t('pomodoro.review.retrySuccess', { phase: workPhase }))
-        // Notify parent to refetch data after a delay (give backend time to process)
+        // Refresh phase statuses and notify parent after a delay
         setTimeout(() => {
+          refetchPhases()
           onRetrySuccess?.()
-        }, 3000)
+        }, 2000)
       } else {
         toast.error(t('pomodoro.review.retryError'))
       }
@@ -159,6 +183,87 @@ export function SessionActivityTimeline({
     return breakPhase || null
   }
 
+  // Get phase status for a specific phase number
+  const getPhaseStatus = (phaseNumber: number) => {
+    return phaseStatuses?.find((p) => p.phaseNumber === phaseNumber)
+  }
+
+  // Phase status badge component
+  const PhaseStatusBadge = ({ phaseNumber }: { phaseNumber: number }) => {
+    const status = getPhaseStatus(phaseNumber)
+    if (!status) return null
+
+    const statusConfig = {
+      pending: {
+        color: 'bg-gray-200 text-gray-800 dark:bg-gray-700 dark:text-gray-300',
+        icon: Clock,
+        label: t('pomodoro.phase.pending')
+      },
+      processing: {
+        color: 'bg-blue-200 text-blue-800 dark:bg-blue-900 dark:text-blue-300',
+        icon: Loader2,
+        label: t('pomodoro.phase.processing')
+      },
+      completed: {
+        color: 'bg-green-200 text-green-800 dark:bg-green-900 dark:text-green-300',
+        icon: ActivityIcon,
+        label: t('pomodoro.phase.completed')
+      },
+      failed: {
+        color: 'bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-300',
+        icon: AlertCircle,
+        label: t('pomodoro.phase.failed')
+      }
+    }
+
+    const config = statusConfig[status.status as keyof typeof statusConfig]
+    if (!config) return null
+
+    const Icon = config.icon
+
+    return (
+      <div className="mb-3 flex items-center justify-between rounded-lg border p-3">
+        <div className="flex items-center gap-3">
+          <Badge variant="outline" className={config.color}>
+            <Icon className={`mr-1 h-3 w-3 ${status.status === 'processing' ? 'animate-spin' : ''}`} />
+            {config.label}
+          </Badge>
+
+          {status.status === 'completed' && status.activityCount > 0 && (
+            <span className="text-muted-foreground text-sm">
+              {status.activityCount} {t('pomodoro.phase.activities')}
+            </span>
+          )}
+
+          {status.status === 'processing' && status.retryCount > 0 && (
+            <span className="text-sm text-blue-600 dark:text-blue-400">
+              {t('pomodoro.phase.retrying', { count: status.retryCount })}
+            </span>
+          )}
+
+          {status.status === 'failed' && status.processingError && (
+            <span className="text-sm text-red-600 dark:text-red-400">{status.processingError.split(':')[0]}</span>
+          )}
+        </div>
+
+        {status.status === 'failed' && (
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => handleRetryWorkPhase(phaseNumber)}
+            disabled={retryingPhase === phaseNumber}>
+            {retryingPhase === phaseNumber ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            <span className="ml-1">{t('pomodoro.phase.retry')}</span>
+          </Button>
+        )}
+      </div>
+    )
+  }
+
   if (activities.length === 0) {
     return (
       <div className="flex items-center justify-center rounded-lg border border-dashed p-8 text-center">
@@ -167,9 +272,12 @@ export function SessionActivityTimeline({
     )
   }
 
+  // Get unique work phase numbers from phaseTimeline
+  const workPhases = phaseTimeline.filter((p) => p.phaseType === 'work').map((p) => p.phaseNumber)
+
   return (
     <div className="space-y-6">
-      {Array.from({ length: totalRounds }, (_, i) => i + 1).map((phase) => {
+      {workPhases.map((phase) => {
         const phaseActivities = activityGroups[phase] || []
         const phaseInfo = getPhaseInfo(phase)
 
@@ -198,6 +306,9 @@ export function SessionActivityTimeline({
                   : t('pomodoro.review.activityTimeline.activities')}
               </p>
             </div>
+
+            {/* Phase status badge */}
+            <PhaseStatusBadge phaseNumber={phase} />
 
             {/* Activities for this phase */}
             <div className="space-y-3">
@@ -321,27 +432,26 @@ export function SessionActivityTimeline({
               )}
             </div>
 
-            {/* Break period after this work phase (if exists and not the last phase) */}
-            {phase < totalRounds &&
-              (() => {
-                const breakInfo = getBreakInfo(phase)
-                if (!breakInfo) return null
+            {/* Break period after this work phase (if exists in phaseTimeline) */}
+            {(() => {
+              const breakInfo = getBreakInfo(phase)
+              if (!breakInfo) return null
 
-                return (
-                  <div className="bg-muted/30 mt-4 flex items-center gap-3 rounded-lg border border-dashed p-3">
-                    <Coffee className="text-muted-foreground h-4 w-4 shrink-0" />
-                    <div className="flex-1">
-                      <div className="text-muted-foreground text-sm font-medium">
-                        {t('pomodoro.review.activityTimeline.breakTime')}
-                      </div>
-                      <div className="text-muted-foreground/70 text-xs">
-                        {formatTime(breakInfo.startTime)} - {formatTime(breakInfo.endTime)} ({breakInfo.durationMinutes}{' '}
-                        min)
-                      </div>
+              return (
+                <div className="bg-muted/30 mt-4 flex items-center gap-3 rounded-lg border border-dashed p-3">
+                  <Coffee className="text-muted-foreground h-4 w-4 shrink-0" />
+                  <div className="flex-1">
+                    <div className="text-muted-foreground text-sm font-medium">
+                      {t('pomodoro.review.activityTimeline.breakTime')}
+                    </div>
+                    <div className="text-muted-foreground/70 text-xs">
+                      {formatTime(breakInfo.startTime)} - {formatTime(breakInfo.endTime)} ({breakInfo.durationMinutes}{' '}
+                      min)
                     </div>
                   </div>
-                )
-              })()}
+                </div>
+              )
+            })()}
           </div>
         )
       })}

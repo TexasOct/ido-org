@@ -511,7 +511,7 @@ class SessionAgent:
             is_valid, overlap_errors = self._validate_no_time_overlap(activities)
             if not is_valid:
                 logger.error(
-                    f"Time overlap validation FAILED in event clustering:\n" +
+                    "Time overlap validation FAILED in event clustering:\n" +
                     "\n".join(overlap_errors) +
                     "\nThis indicates overlap detection algorithm may need adjustment"
                 )
@@ -1558,12 +1558,12 @@ class SessionAgent:
                 is_valid, overlap_errors = self._validate_no_time_overlap(activities)
                 if not is_valid:
                     logger.error(
-                        f"Time overlap still exists after forced merge:\n" +
+                        "Time overlap still exists after forced merge:\n" +
                         "\n".join(overlap_errors) +
                         "\nThis should not happen - keeping activities as-is but logging critical error"
                     )
                 else:
-                    logger.info(f"Successfully resolved all time overlaps after forced merge")
+                    logger.info("Successfully resolved all time overlaps after forced merge")
 
             # Step 3: Get existing activities from this session (previous work phases)
             existing_session_activities = await self._get_session_activities(session_id)

@@ -1107,6 +1107,28 @@ export async function retryWorkPhaseAggregation(
 }
 
 /**
+ * Get all work phase records for a session.
+ * Used by frontend to display phase status and retry buttons.
+ */
+export async function getSessionPhases(
+    body: Commands["get_session_phases"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["get_session_phases"]["output"]> {
+    return await pyInvoke("get_session_phases", body, options);
+}
+
+/**
+ * Manually retry LLM focus evaluation for a session.
+ * Independent from phase aggregation retry.
+ */
+export async function retryLlmEvaluation(
+    body: Commands["retry_llm_evaluation"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["retry_llm_evaluation"]["output"]> {
+    return await pyInvoke("retry_llm_evaluation", body, options);
+}
+
+/**
  * Find activities that overlap with session time but aren't linked
  *
  * Returns list of activities that could be retroactively linked

@@ -757,7 +757,15 @@ export const zhCN = {
     phase: {
       work: '工作',
       break: '休息',
-      completed: '已完成'
+      completed: '已完成',
+      label: '阶段',
+      overview: '工作阶段状态',
+      activities: '个活动',
+      pending: '等待处理',
+      processing: '处理中',
+      failed: '失败',
+      retrying: '重试中 ({{count}}/3)',
+      retry: '重试'
     },
     progress: {
       roundsComplete: '轮已完成',
@@ -870,6 +878,9 @@ export const zhCN = {
       retrying: '处理中...',
       retrySuccess: '工作阶段 {{phase}} 的活动聚合已触发',
       retryError: '重试聚合失败',
+      llmRetry: '重新生成分析',
+      llmRetrySuccess: 'AI 分析重试已触发',
+      llmRetryError: '重试 AI 分析失败',
       sessionDetails: '会话详情',
       loadingSession: '正在加载会话数据...',
       aiAnalysis: {
@@ -894,6 +905,7 @@ export const zhCN = {
           communication: '沟通',
           entertainment: '娱乐活动',
           productivityAnalysis: '效率分析',
+          productivity_analysis: '效率分析',
           mixed: '混合活动',
           unclear: '不明确'
         },

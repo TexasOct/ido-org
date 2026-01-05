@@ -583,3 +583,25 @@ class UpdateKnowledgeResponse(TimedOperationResponse):
     data: Optional[KnowledgeData] = None
 
 
+# ==================== Pomodoro Work Phases ====================
+
+
+class WorkPhaseInfo(BaseModel):
+    """Work phase status information"""
+
+    phase_id: str
+    phase_number: int
+    status: str  # pending/processing/completed/failed
+    processing_error: Optional[str] = None
+    retry_count: int
+    phase_start_time: str
+    phase_end_time: Optional[str] = None
+    activity_count: int
+
+
+class GetSessionPhasesResponse(TimedOperationResponse):
+    """Response for get_session_phases endpoint"""
+
+    data: Optional[List[WorkPhaseInfo]] = None
+
+

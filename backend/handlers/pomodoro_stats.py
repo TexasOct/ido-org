@@ -272,7 +272,7 @@ async def get_pomodoro_session_detail(
         session_with_pure_duration["pure_work_duration_minutes"] = session_with_pure_duration.get("actual_duration_minutes", 0)
 
         # Calculate phase timeline
-        phase_timeline_raw = _calculate_phase_timeline(session)
+        phase_timeline_raw = await _calculate_phase_timeline(session)
         phase_timeline = [
             PhaseTimelineItem(
                 phase_type=phase["phase_type"],
@@ -475,12 +475,12 @@ def _get_focus_level(score: float) -> str:
         return "low"
 
 
-def _calculate_phase_timeline(session: Dict[str, Any]) -> List[Dict[str, Any]]:
+async def _calculate_phase_timeline(session: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    Reconstruct work/break phase timeline from session metadata
+    Reconstruct work/break phase timeline from session data
 
-    Calculates the timeline of work and break phases based on the session's
-    start time and duration configurations. Assumes phases completed on schedule.
+    Calculates the timeline based on completed_rounds and actual session duration.
+    For the last round, uses actual end_time instead of configured duration.
 
     Args:
         session: Session dictionary with metadata
@@ -491,29 +491,47 @@ def _calculate_phase_timeline(session: Dict[str, Any]) -> List[Dict[str, Any]]:
     from datetime import timedelta
 
     start_time = datetime.fromisoformat(session["start_time"])
+    end_time_str = session.get("end_time")
     work_duration = session.get("work_duration_minutes", 25)
     break_duration = session.get("break_duration_minutes", 5)
     completed_rounds = session.get("completed_rounds", 0)
     total_rounds = session.get("total_rounds", 4)
     status = session.get("status", "active")
 
+    if completed_rounds == 0:
+        return []
+
     timeline = []
     current_time = start_time
 
+    # Calculate timeline for all completed rounds
     for round_num in range(1, completed_rounds + 1):
+        is_last_round = (round_num == completed_rounds)
+
         # Work phase
-        work_end = current_time + timedelta(minutes=work_duration)
+        if is_last_round and end_time_str:
+            # Last round - use actual end_time
+            work_end = datetime.fromisoformat(end_time_str)
+            duration = int((work_end - current_time).total_seconds() / 60)
+        else:
+            # Complete round - use configured duration
+            work_end = current_time + timedelta(minutes=work_duration)
+            duration = work_duration
+
         timeline.append({
             "phase_type": "work",
             "phase_number": round_num,
             "start_time": current_time.isoformat(),
             "end_time": work_end.isoformat(),
-            "duration_minutes": work_duration,
+            "duration_minutes": duration,
         })
         current_time = work_end
 
-        # Break phase (skip after last round if session completed)
-        if round_num < total_rounds or status != "completed":
+        # Break phase - only add if NOT the last completed round
+        # (i.e., there's another work round after this one)
+        should_add_break = not is_last_round
+
+        if should_add_break:
             break_end = current_time + timedelta(minutes=break_duration)
             timeline.append({
                 "phase_type": "break",

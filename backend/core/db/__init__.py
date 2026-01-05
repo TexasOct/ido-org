@@ -24,6 +24,7 @@ from .events import EventsRepository
 from .knowledge import KnowledgeRepository
 from .models import LLMModelsRepository
 from .pomodoro_sessions import PomodoroSessionsRepository
+from .pomodoro_work_phases import PomodoroWorkPhasesRepository
 from .raw_records import RawRecordsRepository
 from .session_preferences import SessionPreferencesRepository
 from .settings import SettingsRepository
@@ -74,6 +75,7 @@ class DatabaseManager:
 
         # Pomodoro feature repositories
         self.pomodoro_sessions = PomodoroSessionsRepository(db_path)
+        self.work_phases = PomodoroWorkPhasesRepository(db_path)
         self.raw_records = RawRecordsRepository(db_path)
 
         # Activity ratings repository

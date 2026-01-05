@@ -710,6 +710,38 @@ def emit_pomodoro_work_phase_completed(
     return _emit("pomodoro-work-phase-completed", payload)
 
 
+def emit_pomodoro_work_phase_failed(
+    session_id: str,
+    work_phase: int,
+    error: str,
+) -> bool:
+    """
+    Send Pomodoro work phase failed event to frontend
+
+    Emitted when a work phase aggregation fails after all retries exhausted.
+    Frontend should display error state and retry button.
+
+    Args:
+        session_id: Pomodoro session ID
+        work_phase: Work phase number (1-based)
+        error: Error message describing the failure
+
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    payload = {
+        "session_id": session_id,
+        "work_phase": work_phase,
+        "error": error,
+    }
+
+    logger.debug(
+        f"[emit_pomodoro_work_phase_failed] Session: {session_id}, "
+        f"Phase: {work_phase}, Error: {error}"
+    )
+    return _emit("pomodoro-work-phase-failed", payload)
+
+
 def emit_pomodoro_session_deleted(
     session_id: str,
     timestamp: Optional[str] = None,

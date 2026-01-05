@@ -22,6 +22,9 @@ from models.responses import (
     GetPomodoroStatusResponse,
     PomodoroSessionData,
     StartPomodoroResponse,
+    TimedOperationResponse,
+    WorkPhaseInfo,
+    GetSessionPhasesResponse,
 )
 
 from . import api_handler
@@ -51,6 +54,18 @@ class RetryWorkPhaseRequest(BaseModel):
 
     session_id: str
     work_phase: int
+
+
+class GetSessionPhasesRequest(BaseModel):
+    """Get session phases request"""
+
+    session_id: str
+
+
+class RetryLLMEvaluationRequest(BaseModel):
+    """Retry LLM evaluation request"""
+
+    session_id: str
 
 
 @api_handler(
@@ -397,4 +412,89 @@ async def retry_work_phase_aggregation(
             message="Failed to retry work phase aggregation",
             error=str(e),
             timestamp=datetime.now().isoformat(),
+        )
+
+
+@api_handler(
+    body=GetSessionPhasesRequest,
+    method="POST",
+    path="/pomodoro/get-session-phases",
+    tags=["pomodoro"],
+)
+async def get_session_phases(
+    body: GetSessionPhasesRequest,
+) -> GetSessionPhasesResponse:
+    """
+    Get all work phase records for a session.
+    Used by frontend to display phase status and retry buttons.
+    """
+    try:
+        db = get_db()
+        phases = await db.work_phases.get_by_session(body.session_id)
+
+        phase_infos = [
+            WorkPhaseInfo(
+                phase_id=p["id"],
+                phase_number=p["phase_number"],
+                status=p["status"],
+                processing_error=p.get("processing_error"),
+                retry_count=p.get("retry_count", 0),
+                phase_start_time=p["phase_start_time"],
+                phase_end_time=p.get("phase_end_time"),
+                activity_count=p.get("activity_count", 0),
+            )
+            for p in phases
+        ]
+
+        return GetSessionPhasesResponse(
+            success=True, data=phase_infos, timestamp=datetime.now().isoformat()
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to get session phases: {e}", exc_info=True)
+        return GetSessionPhasesResponse(
+            success=False, error=str(e), timestamp=datetime.now().isoformat()
+        )
+
+
+@api_handler(
+    body=RetryLLMEvaluationRequest,
+    method="POST",
+    path="/pomodoro/retry-llm-evaluation",
+    tags=["pomodoro"],
+)
+async def retry_llm_evaluation(
+    body: RetryLLMEvaluationRequest,
+) -> TimedOperationResponse:
+    """
+    Manually retry LLM focus evaluation for a session.
+    Independent from phase aggregation retry.
+    """
+    try:
+        coordinator = get_coordinator()
+
+        if not coordinator.pomodoro_manager:
+            return TimedOperationResponse(
+                success=False,
+                error="Pomodoro manager not initialized",
+                timestamp=datetime.now().isoformat(),
+            )
+
+        # Trigger LLM evaluation (non-blocking)
+        asyncio.create_task(
+            coordinator.pomodoro_manager._compute_and_cache_llm_evaluation(
+                body.session_id
+            )
+        )
+
+        return TimedOperationResponse(
+            success=True,
+            message="LLM evaluation retry triggered successfully",
+            timestamp=datetime.now().isoformat(),
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to retry LLM evaluation: {e}", exc_info=True)
+        return TimedOperationResponse(
+            success=False, error=str(e), timestamp=datetime.now().isoformat()
         )

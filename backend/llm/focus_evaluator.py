@@ -261,7 +261,28 @@ class FocusEvaluator:
                 evaluation["analysis"][key] = []
 
         # Ensure other fields have defaults
-        evaluation.setdefault("work_type", "unclear")
+        # Validate work_type against allowed values
+        allowed_work_types = {
+            "development",
+            "writing",
+            "learning",
+            "research",
+            "design",
+            "communication",
+            "entertainment",
+            "productivity_analysis",
+            "mixed",
+            "unclear",
+        }
+        work_type = evaluation.get("work_type", "unclear")
+        if work_type not in allowed_work_types:
+            logger.warning(
+                f"Invalid work_type '{work_type}' from LLM, defaulting to 'unclear'. "
+                f"Allowed values: {allowed_work_types}"
+            )
+            work_type = "unclear"
+        evaluation["work_type"] = work_type
+
         evaluation.setdefault("is_focused_work", focus_score >= 60)
         evaluation.setdefault("distraction_percentage", max(0, 100 - focus_score))
         evaluation.setdefault("deep_work_minutes", 0)

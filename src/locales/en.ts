@@ -761,7 +761,15 @@ export const en = {
     phase: {
       work: 'Work',
       break: 'Break',
-      completed: 'Completed'
+      completed: 'Completed',
+      label: 'Phase',
+      overview: 'Work Phase Status',
+      activities: 'activities',
+      pending: 'Pending',
+      processing: 'Processing',
+      failed: 'Failed',
+      retrying: 'Retrying ({{count}}/3)',
+      retry: 'Retry'
     },
     progress: {
       roundsComplete: 'rounds completed',
@@ -875,6 +883,9 @@ export const en = {
       retrying: 'Processing...',
       retrySuccess: 'Work phase {{phase}} aggregation triggered successfully',
       retryError: 'Failed to retry aggregation',
+      llmRetry: 'Retry Analysis',
+      llmRetrySuccess: 'AI analysis retry triggered',
+      llmRetryError: 'Failed to retry AI analysis',
       sessionDetails: 'Session Details',
       loadingSession: 'Loading session data...',
       aiAnalysis: {
@@ -899,6 +910,7 @@ export const en = {
           communication: 'Communication',
           entertainment: 'Entertainment',
           productivityAnalysis: 'Productivity Analysis',
+          productivity_analysis: 'Productivity Analysis',
           mixed: 'Mixed Activities',
           unclear: 'Unclear'
         },
