@@ -713,8 +713,8 @@ class PomodoroManager:
                 processing_completed_at=datetime.now().isoformat(),
             )
 
-            # Trigger LLM focus evaluation (async, non-blocking)
-            await self._compute_and_cache_llm_evaluation(session_id)
+            # Wait for all work phases to complete before triggering LLM evaluation
+            await self._wait_and_trigger_llm_evaluation(session_id)
 
             logger.info(
                 f"✓ Pomodoro session processed: {session_id}, records={total_processed}"
@@ -775,15 +775,87 @@ class PomodoroManager:
         except Exception as e:
             logger.debug(f"Failed to emit failure event: {e}")
 
-    async def _compute_and_cache_llm_evaluation(self, session_id: str) -> None:
+    async def _wait_and_trigger_llm_evaluation(self, session_id: str) -> None:
+        """
+        Wait for all work phases to complete successfully, then trigger LLM evaluation.
+
+        This ensures AI analysis only runs after all activity data is ready.
+        For initial generation, retries are automatic. For subsequent failures,
+        users can manually retry.
+
+        Args:
+            session_id: Pomodoro session ID
+        """
+        MAX_WAIT_TIME = 300  # 5 minutes max wait
+        POLL_INTERVAL = 3  # Check every 3 seconds
+
+        try:
+            logger.info(f"Waiting for all work phases to complete for session {session_id}")
+
+            # Get session info
+            session = await self.db.pomodoro_sessions.get_by_id(session_id)
+            if not session:
+                logger.warning(f"Session {session_id} not found, skipping LLM evaluation wait")
+                return
+
+            total_rounds = session.get("total_rounds", 4)
+            waited_time = 0
+
+            # Wait for all phases to reach terminal state (completed or failed)
+            while waited_time < MAX_WAIT_TIME:
+                phases = await self.db.work_phases.get_by_session(session_id)
+
+                # Check if all expected work phases exist and have terminal status
+                completed_phases = [p for p in phases if p["status"] == "completed"]
+                failed_phases = [p for p in phases if p["status"] == "failed"]
+                terminal_phases = completed_phases + failed_phases
+
+                if len(terminal_phases) >= total_rounds:
+                    # All phases have reached terminal state
+                    logger.info(
+                        f"All {total_rounds} work phases reached terminal state: "
+                        f"completed={len(completed_phases)}, failed={len(failed_phases)}"
+                    )
+                    break
+
+                # Still waiting for phases to complete
+                logger.debug(
+                    f"Waiting for work phases: {len(terminal_phases)}/{total_rounds} complete, "
+                    f"waited {waited_time}s"
+                )
+
+                await asyncio.sleep(POLL_INTERVAL)
+                waited_time += POLL_INTERVAL
+
+            if waited_time >= MAX_WAIT_TIME:
+                logger.warning(
+                    f"Timeout waiting for work phases to complete ({MAX_WAIT_TIME}s), "
+                    f"proceeding with LLM evaluation anyway"
+                )
+
+            # Now trigger LLM evaluation
+            await self._compute_and_cache_llm_evaluation(session_id, is_first_attempt=True)
+
+        except Exception as e:
+            logger.error(
+                f"Error waiting for phases before LLM evaluation: {e}",
+                exc_info=True
+            )
+            # Continue to try LLM evaluation anyway
+            await self._compute_and_cache_llm_evaluation(session_id, is_first_attempt=True)
+
+    async def _compute_and_cache_llm_evaluation(
+        self, session_id: str, is_first_attempt: bool = False
+    ) -> None:
         """
         Compute LLM focus evaluation and cache to database
 
-        Called after batch processing completes to pre-compute evaluation.
+        Called after all work phases complete to pre-compute evaluation.
         Failures are logged but don't block session completion.
 
         Args:
             session_id: Pomodoro session ID
+            is_first_attempt: Whether this is the first automatic attempt
         """
         try:
             logger.info(f"Computing LLM focus evaluation for session {session_id}")

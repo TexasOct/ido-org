@@ -1,16 +1,56 @@
 import { Card, CardContent } from '@/components/ui/card'
 import { Target, Clock, TrendingUp, Award } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+import { useEffect, useState } from 'react'
+import { getPomodoroGoals } from '@/lib/client/apiClient'
 
 interface StatsOverviewProps {
   weeklyTotal: number
   focusHours: number
   dailyAverage: number
   completionRate: number
+  period: 'week' | 'month' | 'year'
 }
 
-export function PomodoroStatsOverview({ weeklyTotal, focusHours, dailyAverage, completionRate }: StatsOverviewProps) {
+export function PomodoroStatsOverview({
+  weeklyTotal,
+  focusHours,
+  dailyAverage,
+  completionRate,
+  period
+}: StatsOverviewProps) {
   const { t } = useTranslation()
+  const [weeklyGoalMinutes, setWeeklyGoalMinutes] = useState(600)
+
+  useEffect(() => {
+    const loadGoal = async () => {
+      try {
+        const response = await getPomodoroGoals()
+        if (response.success && response.data) {
+          setWeeklyGoalMinutes(response.data.weeklyFocusGoalMinutes)
+        }
+      } catch (error) {
+        console.error('[PomodoroStatsOverview] Failed to load goal:', error)
+      }
+    }
+    loadGoal()
+  }, [])
+
+  // Calculate goal hours based on period
+  const getGoalHours = () => {
+    if (period === 'week') {
+      return weeklyGoalMinutes / 60
+    } else if (period === 'month') {
+      // Pro-rate weekly goal to monthly (4.3 weeks/month)
+      return (weeklyGoalMinutes * 4.3) / 60
+    } else if (period === 'year') {
+      // Pro-rate weekly goal to yearly (52 weeks/year)
+      return (weeklyGoalMinutes * 52) / 60
+    }
+    return weeklyGoalMinutes / 60
+  }
+
+  const goalHours = getGoalHours()
 
   const stats = [
     {
@@ -23,7 +63,7 @@ export function PomodoroStatsOverview({ weeklyTotal, focusHours, dailyAverage, c
       icon: Clock,
       value: focusHours.toFixed(1),
       label: t('pomodoro.review.overview.focusHours'),
-      unit: t('pomodoro.config.minutes')
+      unit: 'h'
     },
     {
       icon: TrendingUp,
@@ -35,7 +75,8 @@ export function PomodoroStatsOverview({ weeklyTotal, focusHours, dailyAverage, c
       icon: Award,
       value: `${completionRate}%`,
       label: t('pomodoro.review.overview.completionRate'),
-      unit: ''
+      unit: '',
+      subtitle: `${focusHours}h / ${goalHours.toFixed(1)}h`
     }
   ]
 
@@ -53,6 +94,9 @@ export function PomodoroStatsOverview({ weeklyTotal, focusHours, dailyAverage, c
                     <span className="text-3xl font-bold tabular-nums">{stat.value}</span>
                     {stat.unit && <span className="text-muted-foreground text-sm">{stat.unit}</span>}
                   </div>
+                  {'subtitle' in stat && stat.subtitle && (
+                    <span className="text-muted-foreground text-xs">{stat.subtitle}</span>
+                  )}
                 </div>
                 <div className="bg-primary/10 text-primary rounded-full p-3">
                   <Icon className="h-5 w-5" />

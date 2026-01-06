@@ -500,6 +500,18 @@ class PerceptionManager:
         """Get records within specified time range"""
         return self.storage.get_records_in_timeframe(start_time, end_time)
 
+    def get_expiring_records(self, expiration_threshold: Optional[int] = None) -> list:
+        """
+        Get records that are about to expire (for pre-processing before cleanup)
+
+        Args:
+            expiration_threshold: Time in seconds before expiration to consider
+
+        Returns:
+            List of records that are about to expire
+        """
+        return self.storage.get_expiring_records(expiration_threshold)
+
     def get_records_in_last_n_seconds(self, seconds: int) -> list:
         """Get records from last N seconds"""
         from datetime import datetime, timedelta

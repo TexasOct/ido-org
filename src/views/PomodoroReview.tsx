@@ -100,6 +100,7 @@ export default function PomodoroReview() {
             focusHours={periodStats.focusHours}
             dailyAverage={periodStats.dailyAverage}
             completionRate={periodStats.completionRate}
+            period={selectedPeriod}
           />
         )}
 

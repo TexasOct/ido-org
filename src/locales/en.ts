@@ -402,6 +402,7 @@ export const en = {
       screens: 'Screen selection',
       model: 'Model configuration',
       permissions: 'Permissions',
+      goals: 'Goals',
       complete: 'Complete'
     },
     welcome: {
@@ -465,6 +466,17 @@ export const en = {
       accessibilityRequested: 'Accessibility permission requested',
       restartHint: 'Some permissions require restarting the app to take effect. After granting, please restart the app.'
     },
+    goals: {
+      heading: 'Set Your Focus Goals',
+      description: 'Define daily and weekly focus time targets to track your productivity and stay motivated.',
+      dailyGoalTitle: 'Daily Focus Goal',
+      dailyGoalDescription: 'How many hours you aim to focus each day (0.5–12 hours).',
+      weeklyGoalTitle: 'Weekly Focus Goal',
+      weeklyGoalDescription: 'Your total focus time target for the week (1–84 hours).',
+      continueHint: 'You can adjust these goals anytime in Settings.',
+      saveSuccess: 'Focus goals saved successfully',
+      saveFailed: 'Failed to save focus goals'
+    },
     complete: {
       title: 'All set',
       description: "You're ready — we'll start recording your cyber life now!",
@@ -485,6 +497,10 @@ export const en = {
       permissions: {
         title: 'Permissions',
         description: 'Control app permissions.'
+      },
+      pomodoro: {
+        title: 'Pomodoro',
+        description: 'Configure focus time goals and tracking preferences'
       },
       perception: {
         title: 'Perception',
@@ -519,6 +535,18 @@ export const en = {
     permissionChecking: 'Checking permissions...',
     permissionCheckSuccess: 'Permission check completed',
     permissionCheckFailed: 'Permission check failed',
+    pomodoro: {
+      title: 'Focus Time Goals',
+      description: 'Set your daily and weekly focus time targets to measure progress and stay on track.',
+      dailyGoalTitle: 'Daily Focus Goal',
+      dailyGoalDescription: 'Target focus time per day (0.5–12 hours).',
+      weeklyGoalTitle: 'Weekly Focus Goal',
+      weeklyGoalDescription: 'Target total focus time per week (1–84 hours).',
+      dailyGoalUpdated: 'Daily goal updated',
+      weeklyGoalUpdated: 'Weekly goal updated',
+      updateFailed: 'Failed to update goals',
+      loadFailed: 'Failed to load goals'
+    },
     savedSuccessfully: 'Settings saved successfully',
     saveFailed: 'Failed to save settings',
     failedToUpdateDatabase: 'Failed to update database path',
@@ -888,10 +916,21 @@ export const en = {
       llmRetryError: 'Failed to retry AI analysis',
       sessionDetails: 'Session Details',
       loadingSession: 'Loading session data...',
+      noActivitiesGenerated: {
+        title: 'No Activities Generated',
+        description:
+          'This Pomodoro session has no activities yet. The system may still be processing, or there may have been insufficient screen activity to generate insights. You can retry processing from the activity timeline below.'
+      },
       aiAnalysis: {
         title: 'AI Analysis',
         viewDetails: 'View Details',
         computing: 'Computing AI analysis...',
+        generating: 'Generating AI Analysis',
+        generatingDescription:
+          'Please wait while we analyze your focus patterns and work quality. This usually takes 10-30 seconds.',
+        generationFailed: 'AI Analysis Generation Failed',
+        failedDescription:
+          'Failed to generate AI analysis for this session. You can click the retry button to try again.',
         dimensionScores: 'Focus Dimensions',
         dimensions: {
           topicConsistency: 'Topic Consistency',

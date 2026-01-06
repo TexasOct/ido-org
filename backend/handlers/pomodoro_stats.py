@@ -633,10 +633,26 @@ async def get_pomodoro_period_stats(
         focus_hours = round(total_minutes / 60, 1)
         daily_average = round(total_sessions / daily_count, 1)
 
-        # Calculate completion rate (assume goal of 4 sessions per day)
-        goal_sessions_per_day = 4
-        total_goal = daily_count * goal_sessions_per_day
-        completion_rate = min(100, int((total_sessions / total_goal) * 100)) if total_goal > 0 else 0
+        # Calculate completion rate based on user's focus time goal
+        from core.settings import get_settings
+
+        settings = get_settings()
+        goals = settings.get_pomodoro_goal_settings()
+
+        # Determine goal based on period
+        if body.period == "week":
+            goal_minutes = goals["weekly_focus_goal_minutes"]
+        elif body.period == "month":
+            # Pro-rate weekly goal to monthly (assume 4.3 weeks/month)
+            goal_minutes = int(goals["weekly_focus_goal_minutes"] * 4.3)
+        elif body.period == "year":
+            # Pro-rate weekly goal to yearly (52 weeks/year)
+            goal_minutes = goals["weekly_focus_goal_minutes"] * 52
+        else:
+            goal_minutes = goals["daily_focus_goal_minutes"]
+
+        # Calculate completion rate based on total focus time (not session count)
+        completion_rate = min(100, int((total_minutes / goal_minutes) * 100)) if goal_minutes > 0 else 0
 
         logger.debug(
             f"Retrieved Pomodoro period stats for {body.period}: "

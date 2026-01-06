@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { PermissionItem } from '@/components/permissions/PermissionItem'
+import { GoalsSetupStep } from '@/components/setup/GoalsSetupStep'
 
 import { useSetupStore, type SetupStep } from '@/lib/stores/setup'
 import { useModelsStore } from '@/lib/stores/models'
@@ -19,7 +20,7 @@ import { getMonitors, getScreenSettings, updateScreenSettings, captureAllPreview
 import type { MonitorInfo, ScreenSetting } from '@/lib/types/settings'
 import { ScreenCard } from '@/components/settings/ScreenCard'
 
-const STEP_ORDER: SetupStep[] = ['welcome', 'screens', 'model', 'permissions', 'complete']
+const STEP_ORDER: SetupStep[] = ['welcome', 'screens', 'model', 'permissions', 'goals', 'complete']
 
 const CURRENCIES = ['USD', 'CNY', 'EUR', 'GBP', 'JPY']
 
@@ -836,6 +837,7 @@ export function InitialSetupFlow() {
   const markScreensStepDone = useSetupStore((state) => state.markScreensStepDone)
   const markModelStepDone = useSetupStore((state) => state.markModelStepDone)
   const markPermissionsStepDone = useSetupStore((state) => state.markPermissionsStepDone)
+  const markGoalsStepDone = useSetupStore((state) => state.markGoalsStepDone)
   const completeAndAcknowledge = useSetupStore((state) => state.completeAndAcknowledge)
   const skipForNow = useSetupStore((state) => state.skipForNow)
 
@@ -872,6 +874,7 @@ export function InitialSetupFlow() {
       screens: t('setup.steps.screens'),
       model: t('setup.steps.model'),
       permissions: t('setup.steps.permissions'),
+      goals: t('setup.steps.goals'),
       complete: t('setup.steps.complete')
     }),
     [t]
@@ -887,6 +890,8 @@ export function InitialSetupFlow() {
         return <ModelSetupStep onContinue={markModelStepDone} />
       case 'permissions':
         return <PermissionsSetupStep onContinue={markPermissionsStepDone} />
+      case 'goals':
+        return <GoalsSetupStep onContinue={markGoalsStepDone} />
       case 'complete':
         return <CompletionStep onFinish={completeAndAcknowledge} />
       default:

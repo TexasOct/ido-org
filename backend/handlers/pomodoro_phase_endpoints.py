@@ -190,10 +190,10 @@ async def retry_llm_evaluation(
                 timestamp=datetime.now().isoformat(),
             )
 
-        # Trigger LLM evaluation (non-blocking)
+        # Trigger LLM evaluation (non-blocking, manual retry)
         asyncio.create_task(
             coordinator.pomodoro_manager._compute_and_cache_llm_evaluation(
-                body.session_id
+                body.session_id, is_first_attempt=False
             )
         )
 

@@ -1129,6 +1129,36 @@ export async function retryLlmEvaluation(
 }
 
 /**
+ * Get Pomodoro focus time goal settings
+ *
+ * Returns:
+ * - daily_focus_goal_minutes: Daily goal in minutes
+ * - weekly_focus_goal_minutes: Weekly goal in minutes
+ */
+export async function getPomodoroGoals(
+    body: Commands["get_pomodoro_goals"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["get_pomodoro_goals"]["output"]> {
+    return await pyInvoke("get_pomodoro_goals", body, options);
+}
+
+/**
+ * Update Pomodoro focus time goal settings
+ *
+ * Args:
+ *     body: Contains daily and/or weekly goal values
+ *
+ * Returns:
+ *     Updated goal settings
+ */
+export async function updatePomodoroGoals(
+    body: Commands["update_pomodoro_goals"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["update_pomodoro_goals"]["output"]> {
+    return await pyInvoke("update_pomodoro_goals", body, options);
+}
+
+/**
  * Find activities that overlap with session time but aren't linked
  *
  * Returns list of activities that could be retroactively linked

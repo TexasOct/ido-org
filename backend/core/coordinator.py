@@ -599,6 +599,40 @@ class PipelineCoordinator:
                         logger.error("Processing pipeline not initialized")
                         raise Exception("Processing pipeline not initialized")
 
+                    # CRITICAL FIX: Check for expiring records BEFORE normal processing
+                    # This prevents records from being auto-cleaned before they can be processed into actions
+                    # Particularly important during Pomodoro mode when user may be idle (reading, thinking)
+                    expiring_records = self.perception_manager.get_expiring_records()
+                    if expiring_records and self._last_processed_timestamp:
+                        # Filter out already processed records
+                        expiring_records = [
+                            record
+                            for record in expiring_records
+                            if record.timestamp > self._last_processed_timestamp
+                        ]
+
+                    if expiring_records:
+                        logger.warning(
+                            f"Found {len(expiring_records)} records about to expire, "
+                            f"forcing processing to prevent data loss"
+                        )
+                        # Force process expiring records immediately
+                        result = await self.processing_pipeline.process_raw_records(expiring_records)
+
+                        # Update last processed timestamp
+                        latest_record_time = max(
+                            (record.timestamp for record in expiring_records), default=None
+                        )
+                        if latest_record_time:
+                            self._last_processed_timestamp = latest_record_time
+
+                        # Update statistics
+                        self.stats["total_processing_cycles"] += 1
+                        self.stats["last_processing_time"] = datetime.now()
+                        self._pending_records_count = 0
+
+                        logger.info(f"Processed {len(expiring_records)} expiring records to prevent loss")
+
                     # Fetch records newer than the last processed timestamp to avoid duplicates
                     end_time = datetime.now()
                     if self._last_processed_timestamp is None:

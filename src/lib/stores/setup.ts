@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import * as apiClient from '@/lib/client/apiClient'
 
-export type SetupStep = 'welcome' | 'screens' | 'model' | 'permissions' | 'complete'
+export type SetupStep = 'welcome' | 'screens' | 'model' | 'permissions' | 'goals' | 'complete'
 
 interface SetupState {
   /**
@@ -21,6 +21,7 @@ interface SetupState {
   markScreensStepDone: () => void
   markModelStepDone: () => void
   markPermissionsStepDone: () => void
+  markGoalsStepDone: () => void
   completeAndAcknowledge: () => Promise<void>
   skipForNow: () => Promise<void>
   reopen: () => void
@@ -32,7 +33,8 @@ const nextStepMap: Record<SetupStep, SetupStep> = {
   welcome: 'screens',
   screens: 'model',
   model: 'permissions',
-  permissions: 'complete',
+  permissions: 'goals',
+  goals: 'complete',
   complete: 'complete'
 }
 
@@ -79,6 +81,15 @@ export const useSetupStore = create<SetupState>()((set, get) => ({
     if (currentStep === 'permissions') {
       set({
         currentStep: nextStepMap.permissions
+      })
+    }
+  },
+
+  markGoalsStepDone: () => {
+    const { currentStep } = get()
+    if (currentStep === 'goals') {
+      set({
+        currentStep: nextStepMap.goals
       })
     }
   },

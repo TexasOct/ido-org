@@ -9,6 +9,7 @@ import { ScreenSelectionSettings } from '@/components/settings/ScreenSelectionSe
 import { PerceptionSettings } from '@/components/settings/PerceptionSettings'
 import { AppearanceSettings } from '@/components/settings/AppearanceSettings'
 import { PermissionsSettings } from '@/components/settings/PermissionsSettings'
+import { PomodoroSettings } from '@/components/settings/PomodoroSettings'
 import { StorageSettings } from '@/components/settings/StorageSettings'
 import { DeveloperSettings } from '@/components/settings/DeveloperSettings'
 import { PageLayout } from '@/components/layout/PageLayout'
@@ -43,6 +44,12 @@ export default function SettingsView() {
         title: t('settings.categories.permissions.title'),
         description: t('settings.categories.permissions.description'),
         sections: [<PermissionsSettings key="permissions" />]
+      },
+      {
+        id: 'pomodoro',
+        title: t('settings.categories.pomodoro.title'),
+        description: t('settings.categories.pomodoro.description'),
+        sections: [<PomodoroSettings key="pomodoro" />]
       },
       {
         id: 'perception',

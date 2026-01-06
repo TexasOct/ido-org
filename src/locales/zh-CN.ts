@@ -404,6 +404,7 @@ export const zhCN = {
       screens: '屏幕选择',
       model: '模型配置',
       permissions: '权限',
+      goals: '目标',
       complete: '完成'
     },
     welcome: {
@@ -464,6 +465,17 @@ export const zhCN = {
       accessibilityRequested: '已请求辅助功能权限',
       restartHint: '某些权限需要重启应用生效。完成授权后请重启。'
     },
+    goals: {
+      heading: '设置专注目标',
+      description: '设定每日和每周的专注时间目标，追踪你的效率并保持动力。',
+      dailyGoalTitle: '每日专注目标',
+      dailyGoalDescription: '你希望每天专注的时长（0.5–12小时）。',
+      weeklyGoalTitle: '每周专注目标',
+      weeklyGoalDescription: '每周的总专注时间目标（1–84小时）。',
+      continueHint: '你可以随时在设置中调整这些目标。',
+      saveSuccess: '专注目标保存成功',
+      saveFailed: '保存专注目标失败'
+    },
     complete: {
       title: '完成',
       description: '所有配置已完成。现在开始记录你的赛博生活吧！',
@@ -484,6 +496,10 @@ export const zhCN = {
       permissions: {
         title: '权限',
         description: '管理系统权限。'
+      },
+      pomodoro: {
+        title: '番茄钟',
+        description: '配置专注时间目标和跟踪偏好'
       },
       perception: {
         title: '感知监控',
@@ -518,6 +534,18 @@ export const zhCN = {
     permissionChecking: '正在检查权限...',
     permissionCheckSuccess: '权限检查完成',
     permissionCheckFailed: '权限检查失败',
+    pomodoro: {
+      title: '专注时间目标',
+      description: '设置每日和每周的专注时间目标，衡量进度并保持专注。',
+      dailyGoalTitle: '每日专注目标',
+      dailyGoalDescription: '每天的目标专注时长（0.5–12小时）。',
+      weeklyGoalTitle: '每周专注目标',
+      weeklyGoalDescription: '每周的总目标专注时长（1–84小时）。',
+      dailyGoalUpdated: '每日目标已更新',
+      weeklyGoalUpdated: '每周目标已更新',
+      updateFailed: '更新目标失败',
+      loadFailed: '加载目标失败'
+    },
     savedSuccessfully: '设置保存成功',
     saveFailed: '设置保存失败',
     failedToUpdateDatabase: '更新数据库路径失败',
@@ -883,10 +911,19 @@ export const zhCN = {
       llmRetryError: '重试 AI 分析失败',
       sessionDetails: '会话详情',
       loadingSession: '正在加载会话数据...',
+      noActivitiesGenerated: {
+        title: '暂无生成活动',
+        description:
+          '此番茄钟时段尚未生成活动数据。系统可能仍在处理中，或者屏幕活动不足以生成洞察。您可以从下方的活动时间线重试处理。'
+      },
       aiAnalysis: {
         title: 'AI 分析',
         viewDetails: '查看详细分析',
         computing: '正在生成 AI 分析...',
+        generating: '正在生成 AI 分析',
+        generatingDescription: '请稍候，系统正在分析您的专注模式和工作质量。通常需要 10-30 秒。',
+        generationFailed: 'AI 分析生成失败',
+        failedDescription: '未能为此时段生成 AI 分析。您可以点击重试按钮再次尝试。',
         dimensionScores: '专注度维度评分',
         dimensions: {
           topicConsistency: '主题一致性',

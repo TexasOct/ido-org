@@ -212,10 +212,23 @@ screenshot_hash_algorithms = ["phash", "dhash", "average_hash"]
 enable_adaptive_threshold = true
 
 # Action extraction configuration (RawAgent → ActionAgent flow)
-# Threshold calculation: target 8 screenshots after filtering
-# Typical filtering rate: 30-40% (dedup + content analysis)
-# Formula: threshold = max_screenshots / (1 - filter_rate) ≈ 8 / 0.65 ≈ 12
-action_extraction_threshold = 12  # Optimized: trigger when 12 screenshots accumulated (~12 seconds)
+# CRITICAL UPDATE: Significantly increased to combat extreme token consumption
+# Analysis: 23:00-00:00 consumed 1.24M tokens in 1 hour (345 tokens/second!)
+#
+# Threshold calculation: Higher threshold = fewer LLM calls = dramatic cost reduction
+# With 1 screenshot/second capture rate:
+# - 12: Trigger every ~12 seconds (too frequent, 300 calls/hour)
+# - 20: Trigger every ~20 seconds (still high, 180 calls/hour)
+# - 40: Trigger every ~40 seconds (balanced, 90 calls/hour) ⭐ NEW
+# - 60: Trigger every ~60 seconds (conservative, 60 calls/hour)
+#
+# Expected savings with threshold=40:
+# - API calls: 180/hour → 90/hour (50% reduction)
+# - Token consumption: ~1.24M/hour → ~620K/hour (50% reduction)
+# - Cost savings: ~$37/hour → ~$18.50/hour (GPT-4 pricing)
+#
+# Note: Buffer persists until threshold is reached, accumulating screenshots continuously
+action_extraction_threshold = 40  # URGENT FIX: Increased from 20 to drastically reduce token consumption
 max_screenshots_per_extraction = 8  # Final limit: ImageSampler will select best 8 from filtered results
 
 # UI configuration
@@ -237,24 +250,29 @@ enable_screenshot_buffering = true
 
 # Count threshold - trigger batch when this many screenshots accumulated
 # Description: With 1 screenshot/sec capture rate:
-# - 30: Batch every ~30 seconds (more frequent, less memory)
-# - 50: Batch every ~50 seconds (balanced) ⭐
+# - 40: Batch every ~40 seconds (matches action_extraction_threshold) ⭐ CURRENT
+# - 50: Batch every ~50 seconds (balanced)
+# - 60: Batch every ~60 seconds (conservative)
 # - 100: Batch every ~100 seconds (less frequent, more memory)
-screenshot_buffer_count_threshold = 50
+# CRITICAL UPDATE: Increased to 40 to match new action_extraction_threshold
+# This prevents excessive token consumption (was 1.24M tokens/hour at threshold=20)
+screenshot_buffer_count_threshold = 40
 
 # Time threshold - trigger batch after this many seconds elapsed
 # Description: Ensures timely processing even if screenshot rate is low
-# - 30: More frequent batching
-# - 60: Balanced (recommended) ⭐
+# - 45: Slightly longer than count threshold (recommended) ⭐ UPDATED
+# - 60: Balanced
 # - 120: Less frequent batching
-screenshot_buffer_time_threshold = 60
+# UPDATED: Set to 45s to work with new 40-screenshot count threshold
+# This prevents screenshots from being buffered too long during idle periods
+screenshot_buffer_time_threshold = 45
 
 # Maximum buffer size - emergency flush to prevent memory overflow
 # Description: Should be 2-4x count_threshold for safety
-# - 100: Conservative (2x count_threshold)
-# - 200: Standard (4x count_threshold) ⭐
-# - 300: Generous (6x count_threshold)
-screenshot_buffer_max_size = 200
+# - 80: Conservative (2x count_threshold=40)
+# - 160: Standard (4x count_threshold=40) ⭐ UPDATED
+# - 240: Generous (6x count_threshold=40)
+screenshot_buffer_max_size = 160
 
 # Processing timeout - maximum time to wait for batch processing
 # Description: Timeout for LLM calls (should be 2x max LLM timeout)

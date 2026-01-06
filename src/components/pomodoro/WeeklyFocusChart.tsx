@@ -1,6 +1,8 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useTranslation } from 'react-i18next'
+import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { getPomodoroGoals } from '@/lib/client/apiClient'
 
 interface DailyFocusData {
   day: string
@@ -14,9 +16,25 @@ interface WeeklyFocusChartProps {
 
 export function WeeklyFocusChart({ data }: WeeklyFocusChartProps) {
   const { t } = useTranslation()
+  const [dailyGoalMinutes, setDailyGoalMinutes] = useState(120)
 
-  // Find max minutes for scaling
-  const maxMinutes = Math.max(...data.map((d) => d.minutes), 1)
+  // Load daily goal for scaling
+  useEffect(() => {
+    const loadGoal = async () => {
+      try {
+        const response = await getPomodoroGoals()
+        if (response.success && response.data) {
+          setDailyGoalMinutes(response.data.dailyFocusGoalMinutes)
+        }
+      } catch (error) {
+        console.error('[WeeklyFocusChart] Failed to load goal:', error)
+      }
+    }
+    loadGoal()
+  }, [])
+
+  // Use daily goal as the 100% reference for progress bars
+  const maxMinutes = dailyGoalMinutes
 
   return (
     <Card className="shadow-none">
@@ -28,6 +46,7 @@ export function WeeklyFocusChart({ data }: WeeklyFocusChartProps) {
         <div className="space-y-3">
           {data.map((item) => {
             const percentage = (item.minutes / maxMinutes) * 100
+            const isOverGoal = percentage > 100
 
             return (
               <div key={item.day} className="flex items-center gap-3">
@@ -36,19 +55,21 @@ export function WeeklyFocusChart({ data }: WeeklyFocusChartProps) {
                   <div className="bg-muted h-8 overflow-hidden rounded-full">
                     <div
                       className={cn(
-                        'bg-primary flex h-full items-center justify-end pr-3 transition-all duration-500',
-                        item.sessions === 0 && 'bg-muted'
+                        'flex h-full items-center justify-end pr-3 transition-all duration-500',
+                        item.sessions === 0 && 'bg-muted',
+                        item.sessions > 0 && !isOverGoal && 'bg-primary',
+                        isOverGoal && 'bg-green-600'
                       )}
-                      style={{ width: `${percentage}%` }}>
+                      style={{ width: `${Math.min(percentage, 100)}%` }}>
                       {item.sessions > 0 && (
                         <span className="text-primary-foreground text-xs font-medium">
-                          {item.sessions} {t('pomodoro.review.weeklyFocus.sessions')} · {item.minutes}{' '}
-                          {t('pomodoro.review.weeklyFocus.minutes')}
+                          {item.minutes} {t('pomodoro.review.weeklyFocus.minutes')}
                         </span>
                       )}
                     </div>
                   </div>
                 </div>
+                <div className="text-muted-foreground w-12 text-right text-xs">{Math.round(percentage)}%</div>
               </div>
             )
           })}
