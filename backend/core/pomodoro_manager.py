@@ -9,13 +9,14 @@ Responsibilities:
 """
 
 import asyncio
+import json
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.db import get_db
 from core.logger import get_logger
-from core.models import RawRecord
+from core.models import RawRecord, RecordType
 
 logger = get_logger(__name__)
 
@@ -412,16 +413,17 @@ class PomodoroManager:
 
         try:
             # Check if session is too short (< 2 minutes)
+            # SIMPLIFIED: Treat too-short sessions as 'abandoned'
             if elapsed_duration < 2:
                 logger.warning(
-                    f"Pomodoro session {session_id} too short ({elapsed_duration:.1f}min), skipping analysis"
+                    f"Pomodoro session {session_id} too short ({elapsed_duration:.1f}min), marking as abandoned"
                 )
                 await self.db.pomodoro_sessions.update(
                     session_id=session_id,
                     end_time=end_time.isoformat(),
                     actual_duration_minutes=int(elapsed_duration),
-                    status="too_short",
-                    processing_status="skipped",
+                    status="abandoned",
+                    processing_status="failed",  # No analysis for too-short sessions
                 )
 
                 # Exit pomodoro mode
@@ -434,7 +436,7 @@ class PomodoroManager:
                     "session_id": session_id,
                     "processing_job_id": None,
                     "raw_records_count": 0,
-                    "message": "Session too short, data discarded",
+                    "message": "Session too short, marked as abandoned",
                 }
 
             # Get session data
@@ -502,63 +504,54 @@ class PomodoroManager:
                 )
 
                 # Create phase records and trigger parallel aggregation
-                break_duration = session.get("break_duration_minutes", 5)
-                start_time_str = session.get("start_time")
-                if start_time_str:
-                    session_start = datetime.fromisoformat(start_time_str)
+                aggregation_tasks = []
+                for phase_num in work_phases_to_process:
+                    # Use unified time window calculation
+                    phase_start, phase_end = await self._get_phase_time_window(session, phase_num)
 
-                    aggregation_tasks = []
-                    for phase_num in work_phases_to_process:
-                        # Calculate phase timing
-                        phase_offset_minutes = (phase_num - 1) * (work_duration + break_duration)
-                        phase_start = session_start + timedelta(minutes=phase_offset_minutes)
-                        phase_end = phase_start + timedelta(minutes=work_duration)
+                    # Use actual end time for last phase (if ending during work)
+                    if phase_num == max(work_phases_to_process) and current_phase == "work":
+                        phase_end = min(phase_end, end_time)
 
-                        # Use actual end time for last phase
-                        if phase_num == max(work_phases_to_process):
-                            phase_end = min(phase_end, end_time)
-
-                        # Check if phase record already exists
-                        existing_phase = await self.db.work_phases.get_by_session_and_phase(
-                            session_id, phase_num
-                        )
-
-                        # Skip if already completed or processing
-                        if existing_phase and existing_phase["status"] in ("completed", "processing"):
-                            logger.info(
-                                f"Phase {phase_num} already {existing_phase['status']}, skipping"
-                            )
-                            continue
-
-                        # Create or get phase record
-                        if existing_phase:
-                            phase_id = existing_phase["id"]
-                        else:
-                            phase_id = await self.db.work_phases.create(
-                                session_id=session_id,
-                                phase_number=phase_num,
-                                phase_start_time=phase_start.isoformat(),
-                                phase_end_time=phase_end.isoformat(),
-                                status="pending",
-                            )
-
-                        # Create parallel task (don't await)
-                        task = asyncio.create_task(
-                            self._aggregate_work_phase_activities(
-                                session_id=session_id,
-                                work_phase=phase_num,
-                                phase_start_time=phase_start,
-                                phase_end_time=phase_end,
-                                phase_id=phase_id,
-                            )
-                        )
-                        aggregation_tasks.append(task)
-
-                    logger.info(
-                        f"Triggered parallel aggregation for {len(aggregation_tasks)} work phases"
+                    # Check if phase record already exists
+                    existing_phase = await self.db.work_phases.get_by_session_and_phase(
+                        session_id, phase_num
                     )
-                else:
-                    logger.warning("Session start_time missing, skipping parallel phase aggregation")
+
+                    # Skip if already completed or processing
+                    if existing_phase and existing_phase["status"] in ("completed", "processing"):
+                        logger.info(
+                            f"Phase {phase_num} already {existing_phase['status']}, skipping"
+                        )
+                        continue
+
+                    # Create or get phase record
+                    if existing_phase:
+                        phase_id = existing_phase["id"]
+                    else:
+                        phase_id = await self.db.work_phases.create(
+                            session_id=session_id,
+                            phase_number=phase_num,
+                            phase_start_time=phase_start.isoformat(),
+                            phase_end_time=phase_end.isoformat(),
+                            status="pending",
+                        )
+
+                    # Create parallel task (don't await)
+                    task = asyncio.create_task(
+                        self._aggregate_work_phase_activities(
+                            session_id=session_id,
+                            work_phase=phase_num,
+                            phase_start_time=phase_start,
+                            phase_end_time=phase_end,
+                            phase_id=phase_id,
+                        )
+                    )
+                    aggregation_tasks.append(task)
+
+                logger.info(
+                    f"Triggered parallel aggregation for {len(aggregation_tasks)} work phases"
+                )
                 # Don't await tasks - let them run in background
                 # ========== END PARALLEL PHASE PROCESSING ==========
             else:
@@ -642,12 +635,15 @@ class PomodoroManager:
 
     async def _process_pomodoro_batch(self, session_id: str, job_id: str):
         """
-        Background task to process Pomodoro session data
+        SIMPLIFIED: Wait for all work phases to complete and trigger LLM evaluation
+
+        NOTE: Batch processing of raw records is removed. All data processing
+        now happens through phase-level aggregation in _aggregate_work_phase_activities.
 
         Steps:
         1. Update status to 'processing'
-        2. Load RawRecords in chunks (to avoid memory issues)
-        3. Process through pipeline
+        2. Wait for all work phases to complete
+        3. Trigger LLM evaluation
         4. Update status to 'completed'
         5. Emit completion event
 
@@ -662,49 +658,10 @@ class PomodoroManager:
                 processing_started_at=datetime.now().isoformat(),
             )
 
-            logger.info(f"→ Processing Pomodoro session: {session_id}")
+            logger.info(f"→ Waiting for work phases to complete: {session_id}")
 
-            # Load raw records in chunks
-            chunk_size = 100
-            offset = 0
-            total_processed = 0
-
-            while True:
-                records = await self.db.raw_records.get_by_session(
-                    session_id=session_id,
-                    limit=chunk_size,
-                    offset=offset,
-                )
-
-                if not records:
-                    break
-
-                # Convert DB records back to RawRecord objects
-                raw_records = []
-                for r in records:
-                    try:
-                        import json
-
-                        raw_record = RawRecord(
-                            timestamp=datetime.fromisoformat(r["timestamp"]),
-                            type=r["type"],
-                            data=json.loads(r["data"]),
-                        )
-                        raw_records.append(raw_record)
-                    except Exception as e:
-                        logger.warning(f"Failed to parse raw record {r['id']}: {e}")
-
-                # Process through pipeline
-                if raw_records:
-                    await self.coordinator.processing_pipeline.process_raw_records(
-                        raw_records
-                    )
-
-                total_processed += len(records)
-                offset += chunk_size
-
-                # Emit progress event
-                self._emit_progress_event(session_id, job_id, total_processed)
+            # Wait for all work phases to complete before triggering LLM evaluation
+            await self._wait_and_trigger_llm_evaluation(session_id)
 
             # Update status
             await self.db.pomodoro_sessions.update(
@@ -713,22 +670,17 @@ class PomodoroManager:
                 processing_completed_at=datetime.now().isoformat(),
             )
 
-            # Wait for all work phases to complete before triggering LLM evaluation
-            await self._wait_and_trigger_llm_evaluation(session_id)
-
-            logger.info(
-                f"✓ Pomodoro session processed: {session_id}, records={total_processed}"
-            )
+            logger.info(f"✓ Pomodoro session completed: {session_id}")
 
             # Emit completion event
-            self._emit_completion_event(session_id, job_id, total_processed)
+            self._emit_completion_event(session_id, job_id, 0)
 
             # Cleanup task reference
             self._processing_tasks.pop(job_id, None)
 
         except Exception as e:
             logger.error(
-                f"✗ Pomodoro batch processing failed: {e}", exc_info=True
+                f"✗ Pomodoro session completion failed: {e}", exc_info=True
             )
             await self.db.pomodoro_sessions.update(
                 session_id=session_id,
@@ -957,12 +909,12 @@ class PomodoroManager:
                             f"using full work_duration ({work_duration}min)"
                         )
 
-                # Auto-end as 'interrupted'
+                # Auto-end as 'abandoned' (SIMPLIFIED: interrupted → abandoned)
                 await self.db.pomodoro_sessions.update(
                     session_id=session_id,
                     end_time=recovery_time.isoformat(),
                     actual_duration_minutes=actual_work_minutes,
-                    status="interrupted",
+                    status="abandoned",
                     processing_status="pending",
                 )
 
@@ -1088,6 +1040,72 @@ class PomodoroManager:
         else:
             return "unknown_error"
 
+    async def _get_phase_time_window(
+        self,
+        session: Dict[str, Any],
+        phase_number: int
+    ) -> Tuple[datetime, datetime]:
+        """
+        Unified phase time window calculation logic
+
+        IMPORTANT: Uses user-configured durations from session record, NOT hardcoded defaults.
+
+        Priority:
+        1. Use actual times from work_phases table (if phase completed)
+        2. Calculate from session start + user-configured durations (fallback)
+
+        Args:
+            session: Session record dict from database
+            phase_number: Phase number (1-based)
+
+        Returns:
+            Tuple of (phase_start_time, phase_end_time)
+        """
+        try:
+            # Try to get actual phase record from database (most accurate)
+            phase_record = await self.db.work_phases.get_by_session_and_phase(
+                session['id'], phase_number
+            )
+
+            if phase_record and phase_record.get('phase_start_time'):
+                # Use actual recorded times (preferred)
+                start_time = datetime.fromisoformat(phase_record['phase_start_time'])
+                end_time_str = phase_record.get('phase_end_time')
+                end_time = datetime.fromisoformat(end_time_str) if end_time_str else datetime.now()
+
+                logger.debug(
+                    f"Using actual phase times from DB: session={session['id']}, "
+                    f"phase={phase_number}, start={start_time.isoformat()}, end={end_time.isoformat()}"
+                )
+
+                return (start_time, end_time)
+
+        except Exception as e:
+            logger.warning(f"Failed to query phase record from DB: {e}")
+
+        # Fallback: Calculate from session start + user-configured durations
+        # ⚠️ CRITICAL: Use user-configured durations, NOT hardcoded values
+        session_start = datetime.fromisoformat(session['start_time'])
+        work_duration = session.get('work_duration_minutes', 25)  # User-configured
+        break_duration = session.get('break_duration_minutes', 5)  # User-configured
+
+        # Calculate offset for this phase
+        # Phase 1: offset = 0
+        # Phase 2: offset = work_duration + break_duration
+        # Phase 3: offset = 2 * (work_duration + break_duration)
+        offset_minutes = (phase_number - 1) * (work_duration + break_duration)
+
+        start_time = session_start + timedelta(minutes=offset_minutes)
+        end_time = start_time + timedelta(minutes=work_duration)
+
+        logger.debug(
+            f"Calculated phase times: session={session['id']}, phase={phase_number}, "
+            f"work_duration={work_duration}min, break_duration={break_duration}min, "
+            f"start={start_time.isoformat()}, end={end_time.isoformat()}"
+        )
+
+        return (start_time, end_time)
+
     async def _aggregate_work_phase_activities(
         self,
         session_id: str,
@@ -1097,14 +1115,12 @@ class PomodoroManager:
         phase_id: Optional[str] = None,
     ) -> None:
         """
-        Aggregate actions into activities for a work phase WITH AUTOMATIC RETRY.
+        Aggregate actions into activities for a work phase WITH SIMPLIFIED RETRY.
 
         Retry Strategy:
         - Attempt 1: Immediate
-        - Attempt 2: After 5 seconds
-        - Attempt 3: After 15 seconds
-        - Attempt 4: After 45 seconds
-        - After 4 attempts: Mark as 'failed'
+        - Attempt 2: After 10 seconds
+        - After 2 attempts: Mark as 'failed' (user can manually retry)
 
         Args:
             session_id: Session ID
@@ -1113,8 +1129,8 @@ class PomodoroManager:
             phase_end_time: Phase end time
             phase_id: Existing phase record ID (optional)
         """
-        MAX_RETRIES = 3
-        RETRY_DELAYS = [5, 15, 45]  # seconds
+        MAX_RETRIES = 1  # Simplified: only 1 retry
+        RETRY_DELAY = 10  # seconds
 
         try:
             # Get or create phase record
@@ -1133,7 +1149,7 @@ class PomodoroManager:
                         status="pending",
                     )
 
-            # RETRY LOOP
+            # SIMPLIFIED RETRY LOOP: Only 1 retry
             for attempt in range(MAX_RETRIES + 1):
                 try:
                     # Update status to processing
@@ -1190,8 +1206,7 @@ class PomodoroManager:
                     )
 
                     if attempt < MAX_RETRIES:
-                        # Schedule retry with exponential backoff
-                        retry_delay = RETRY_DELAYS[attempt]
+                        # Schedule retry after 10 seconds
                         new_retry_count = await self.db.work_phases.increment_retry_count(
                             phase_id
                         )
@@ -1201,15 +1216,16 @@ class PomodoroManager:
                         )
 
                         logger.info(
-                            f"Retrying work phase in {retry_delay}s "
+                            f"Retrying work phase in {RETRY_DELAY}s "
                             f"(retry {new_retry_count}/{MAX_RETRIES})"
                         )
 
-                        await asyncio.sleep(retry_delay)
+                        await asyncio.sleep(RETRY_DELAY)
                     else:
-                        # All retries exhausted
+                        # All retries exhausted - mark as failed
+                        # User can manually retry via API
                         await self.db.work_phases.update_status(
-                            phase_id, "failed", error_message, MAX_RETRIES + 1
+                            phase_id, "failed", error_message, MAX_RETRIES
                         )
 
                         logger.error(
@@ -1219,7 +1235,6 @@ class PomodoroManager:
 
                         # Emit failure event
                         from core.events import emit_pomodoro_work_phase_failed
-
                         emit_pomodoro_work_phase_failed(session_id, work_phase, error_message)
 
                         return  # Don't raise - allow other phases to continue

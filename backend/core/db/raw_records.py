@@ -163,6 +163,7 @@ class RawRecordsRepository(BaseRepository):
         start_time: str,
         end_time: str,
         record_type: Optional[str] = None,
+        session_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get raw records within a time range
@@ -171,13 +172,25 @@ class RawRecordsRepository(BaseRepository):
             start_time: Start timestamp (ISO format)
             end_time: End timestamp (ISO format)
             record_type: Optional filter by record type
+            session_id: Optional filter by Pomodoro session ID
 
         Returns:
             List of raw record dictionaries
         """
         try:
             with self._get_conn() as conn:
-                if record_type:
+                # Build query based on filters
+                if record_type and session_id:
+                    cursor = conn.execute(
+                        """
+                        SELECT * FROM raw_records
+                        WHERE timestamp >= ? AND timestamp <= ?
+                        AND type = ? AND pomodoro_session_id = ?
+                        ORDER BY timestamp ASC
+                        """,
+                        (start_time, end_time, record_type, session_id),
+                    )
+                elif record_type:
                     cursor = conn.execute(
                         """
                         SELECT * FROM raw_records
@@ -185,6 +198,16 @@ class RawRecordsRepository(BaseRepository):
                         ORDER BY timestamp ASC
                         """,
                         (start_time, end_time, record_type),
+                    )
+                elif session_id:
+                    cursor = conn.execute(
+                        """
+                        SELECT * FROM raw_records
+                        WHERE timestamp >= ? AND timestamp <= ?
+                        AND pomodoro_session_id = ?
+                        ORDER BY timestamp ASC
+                        """,
+                        (start_time, end_time, session_id),
                     )
                 else:
                     cursor = conn.execute(

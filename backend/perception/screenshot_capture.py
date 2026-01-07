@@ -40,9 +40,6 @@ class ScreenshotCapture(BaseCapture):
         self._last_screenshot_time = 0
         # Per-monitor deduplication state
         self._last_hashes: Dict[int, Optional[str]] = {}
-        self._last_force_save_times: Dict[int, float] = {}
-        # Force save interval: read from settings, default 60 seconds
-        self._force_save_interval = self._get_force_save_interval()
         self._screenshot_count = 0
         self._compression_quality = 90
         self._max_width = 2560
@@ -147,7 +144,7 @@ class ScreenshotCapture(BaseCapture):
     def _capture_one_monitor(
         self, sct: MSSBase, monitor_index: int
     ) -> Optional[RawRecord]:
-        """Capture one monitor and emit a record if not duplicate (or force-save interval reached)."""
+        """Capture one monitor and emit a record if not duplicate."""
         try:
             monitor = sct.monitors[monitor_index]
             screenshot = sct.grab(monitor)
@@ -157,23 +154,12 @@ class ScreenshotCapture(BaseCapture):
             img = self._process_image(img)
 
             img_hash = self._calculate_hash(img)
-            current_time = time.time()
             last_hash = self._last_hashes.get(monitor_index)
-            last_force = self._last_force_save_times.get(monitor_index, 0.0)
             is_duplicate = last_hash == img_hash
-            time_since_force_save = current_time - last_force
-            should_force_save = time_since_force_save >= self._force_save_interval
 
-            if is_duplicate and not should_force_save:
+            if is_duplicate:
                 logger.debug(f"Skip duplicate screenshot on monitor {monitor_index}")
                 return None
-
-            if is_duplicate and should_force_save:
-                logger.debug(
-                    f"Force keep duplicate screenshot on monitor {monitor_index} "
-                    f"({time_since_force_save:.1f}s since last save)"
-                )
-                self._last_force_save_times[monitor_index] = current_time
 
             self._last_hashes[monitor_index] = img_hash
             self._screenshot_count += 1
@@ -379,23 +365,6 @@ class ScreenshotCapture(BaseCapture):
             "enable_phash": self._enable_phash,
             "tmp_dir": self.tmp_dir,
         }
-
-    def _get_force_save_interval(self) -> float:
-        """Get force save interval from settings
-
-        Returns the interval in seconds after which a screenshot will be force-saved
-        even if it appears to be a duplicate. Defaults to 60 seconds (1 minute).
-        """
-        try:
-            settings = get_settings()
-            interval = settings.get_screenshot_force_save_interval()
-            logger.debug(f"Force save interval: {interval}s")
-            return interval
-        except Exception as e:
-            logger.warning(
-                f"Failed to read force save interval from settings: {e}, using default 60s"
-            )
-            return 60.0  # Default 1 minute
 
     def _ensure_tmp_dir(self) -> None:
         """Ensure tmp directory exists"""
