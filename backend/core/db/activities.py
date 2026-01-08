@@ -679,3 +679,82 @@ class ActivitiesRepository(BaseRepository):
                 exc_info=True,
             )
             raise
+
+    async def update_focus_score(self, activity_id: str, focus_score: float) -> None:
+        """
+        Update focus score for a specific activity
+
+        Args:
+            activity_id: Activity ID
+            focus_score: Focus score (0.0-100.0)
+        """
+        try:
+            # Ensure focus_score is within valid range
+            focus_score = max(0.0, min(100.0, focus_score))
+
+            with self._get_conn() as conn:
+                conn.execute(
+                    """
+                    UPDATE activities
+                    SET focus_score = ?, updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                    """,
+                    (focus_score, activity_id),
+                )
+                conn.commit()
+
+            logger.debug(f"Updated focus_score for activity {activity_id}: {focus_score}")
+
+        except Exception as e:
+            logger.error(
+                f"Failed to update focus_score for activity {activity_id}: {e}",
+                exc_info=True,
+            )
+            raise
+
+    async def batch_update_focus_scores(
+        self, activity_scores: List[Dict[str, Any]]
+    ) -> int:
+        """
+        Batch update focus scores for multiple activities
+
+        Args:
+            activity_scores: List of dicts with 'activity_id' and 'focus_score' keys
+
+        Returns:
+            Number of activities updated
+        """
+        if not activity_scores:
+            return 0
+
+        try:
+            with self._get_conn() as conn:
+                updated_count = 0
+                for item in activity_scores:
+                    activity_id = item.get("activity_id")
+                    focus_score = item.get("focus_score", 0.0)
+
+                    if not activity_id:
+                        continue
+
+                    # Ensure focus_score is within valid range
+                    focus_score = max(0.0, min(100.0, focus_score))
+
+                    cursor = conn.execute(
+                        """
+                        UPDATE activities
+                        SET focus_score = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (focus_score, activity_id),
+                    )
+                    updated_count += cursor.rowcount
+
+                conn.commit()
+
+            logger.info(f"Batch updated focus_scores for {updated_count} activities")
+            return updated_count
+
+        except Exception as e:
+            logger.error(f"Failed to batch update focus_scores: {e}", exc_info=True)
+            raise

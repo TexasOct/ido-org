@@ -675,13 +675,24 @@ class SettingsManager:
     def get_pomodoro_buffering_config(self) -> Dict[str, Any]:
         """Get Pomodoro screenshot buffering configuration
 
+        Screenshot buffering improves performance by batching screenshots before
+        sending to LLM for processing. This reduces API calls and improves response time.
+
         Returns:
             Dictionary with buffering configuration:
-            - enabled: Whether buffering is enabled
-            - count_threshold: Number of screenshots to trigger batch
-            - time_threshold: Seconds elapsed to trigger batch
-            - max_buffer_size: Emergency flush limit
-            - processing_timeout: Timeout for LLM calls (seconds)
+            - enabled: Whether buffering is enabled (default: True)
+            - count_threshold: Number of screenshots to trigger batch (default: 20)
+              Lowered from 50 to 20 to match action extraction threshold.
+              At 1 screenshot/sec, this means 20 seconds worst case delay.
+            - time_threshold: Seconds elapsed to trigger batch (default: 30.0)
+              Lowered from 60 to 30 seconds to reduce latency during idle periods.
+            - max_buffer_size: Emergency flush limit (default: 200)
+              Safety limit to prevent memory issues if processing is slow.
+            - processing_timeout: Timeout for LLM calls in seconds (default: 720.0)
+              12 minutes timeout for batch processing. If exceeded, buffer is reset.
+
+        Note: After Phase 1 optimization (Jan 2026), these settings work well with
+        the simplified retry mechanism (1 retry instead of 4).
         """
         return {
             "enabled": self.get("pomodoro.enable_screenshot_buffering", True),

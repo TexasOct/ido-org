@@ -805,6 +805,9 @@ class PomodoroManager:
         Called after all work phases complete to pre-compute evaluation.
         Failures are logged but don't block session completion.
 
+        This method now also updates individual activity focus_scores for
+        better data granularity and frontend display.
+
         Args:
             session_id: Pomodoro session ID
             is_first_attempt: Whether this is the first automatic attempt
@@ -824,7 +827,7 @@ class PomodoroManager:
                 logger.info(f"No activities for session {session_id}, skipping LLM evaluation")
                 return
 
-            # Compute LLM evaluation
+            # Compute LLM evaluation (session-level)
             from llm.focus_evaluator import get_focus_evaluator
 
             focus_evaluator = get_focus_evaluator()
@@ -833,7 +836,7 @@ class PomodoroManager:
                 session_info=session,
             )
 
-            # Cache result to database
+            # Cache session-level result to database
             await self.db.pomodoro_sessions.update_llm_evaluation(
                 session_id, llm_result
             )
@@ -844,6 +847,11 @@ class PomodoroManager:
                 f"level={llm_result.get('focus_level')}"
             )
 
+            # Update individual activity focus scores for better granularity
+            await self._update_activity_focus_scores(
+                session_id, activities, session, focus_evaluator
+            )
+
         except Exception as e:
             # Don't crash session completion if LLM evaluation fails
             logger.error(
@@ -851,6 +859,83 @@ class PomodoroManager:
                 exc_info=True,
             )
             # Continue gracefully - evaluation can be computed on-demand later
+
+    async def _update_activity_focus_scores(
+        self,
+        session_id: str,
+        activities: List[Dict[str, Any]],
+        session: Dict[str, Any],
+        focus_evaluator: Any,
+    ) -> None:
+        """
+        Update focus scores for individual activities
+
+        This provides better granularity than session-level scores and enables
+        per-activity focus analysis in the frontend.
+
+        Args:
+            session_id: Pomodoro session ID
+            activities: List of activity dictionaries
+            session: Session dictionary with user_intent and related_todos
+            focus_evaluator: FocusEvaluator instance
+        """
+        try:
+            logger.debug(f"Updating focus scores for {len(activities)} activities")
+
+            # Prepare session context for evaluation
+            session_context = {
+                "user_intent": session.get("user_intent"),
+                "related_todos": session.get("related_todos", []),
+            }
+
+            # Evaluate and update each activity
+            activity_scores = []
+            for activity in activities:
+                try:
+                    # Evaluate single activity focus
+                    activity_eval = await focus_evaluator.evaluate_activity_focus(
+                        activity=activity,
+                        session_context=session_context,
+                    )
+
+                    focus_score = activity_eval.get("focus_score", 50.0)
+                    activity_scores.append({
+                        "activity_id": activity["id"],
+                        "focus_score": focus_score,
+                    })
+
+                    logger.debug(
+                        f"Activity '{activity.get('title', 'Untitled')[:30]}' "
+                        f"focus_score: {focus_score}"
+                    )
+
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to evaluate activity {activity.get('id')}: {e}, "
+                        f"using default score"
+                    )
+                    # Use default score on failure
+                    activity_scores.append({
+                        "activity_id": activity["id"],
+                        "focus_score": 50.0,
+                    })
+
+            # Batch update all activity focus scores
+            if activity_scores:
+                updated_count = await self.db.activities.batch_update_focus_scores(
+                    activity_scores
+                )
+                logger.info(
+                    f"✓ Updated focus_scores for {updated_count} activities "
+                    f"in session {session_id}"
+                )
+
+        except Exception as e:
+            logger.error(
+                f"Failed to update activity focus scores for session {session_id}: {e}",
+                exc_info=True,
+            )
+            # Non-critical error, continue gracefully
 
     async def check_orphaned_sessions(self) -> int:
         """
