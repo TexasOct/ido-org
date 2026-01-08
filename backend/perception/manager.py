@@ -54,8 +54,7 @@ class PerceptionManager:
         self.on_system_wake_callback = on_system_wake
 
         # Initialize active monitor tracker for smart screenshot capture
-        # inactive_timeout will be loaded from settings during start()
-        self.monitor_tracker = ActiveMonitorTracker(inactive_timeout=30.0)
+        self.monitor_tracker = ActiveMonitorTracker()
 
         # Create active window capture first (needed by screenshot capture for context enrichment)
         # No callback needed as window info is embedded in screenshot records
@@ -181,6 +180,11 @@ class PerceptionManager:
 
             # Notify coordinator that a new record is available
             self._notify_record_available()
+
+            # Update monitor tracker with keyboard activity
+            # This keeps smart capture aware of user activity even when mouse is hidden
+            if self.monitor_tracker:
+                self.monitor_tracker.update_from_keyboard()
 
             logger.debug(
                 f"Keyboard event recorded: {record.data.get('key', 'unknown')}"
@@ -312,9 +316,8 @@ class PerceptionManager:
             self.keyboard_enabled = settings.get("perception.keyboard_enabled", True)
             self.mouse_enabled = settings.get("perception.mouse_enabled", True)
 
-            # Load smart capture settings
-            inactive_timeout = settings.get("screenshot.inactive_timeout", 30.0)
-            self.monitor_tracker._inactive_timeout = float(inactive_timeout)
+            # Note: inactive_timeout setting is no longer used
+            # Smart capture now always uses last known mouse position
 
             # Start screen state monitor
             start_time = datetime.now()

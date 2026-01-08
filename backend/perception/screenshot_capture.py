@@ -116,24 +116,17 @@ class ScreenshotCapture(BaseCapture):
             smart_capture_enabled = settings.get("screenshot.smart_capture_enabled", False)
 
             if smart_capture_enabled and self.monitor_tracker:
-                # Check if we should capture all monitors due to inactivity
-                if self.monitor_tracker.should_capture_all_monitors():
-                    logger.debug(
-                        "Inactivity timeout reached, capturing all enabled monitors"
-                    )
-                    # Return all configured enabled monitors
-                    return configured_enabled
+                # Smart capture: only capture the active monitor if it's enabled in settings
+                # Always uses last known mouse position, never falls back to "capture all"
+                active_index = self.monitor_tracker.get_active_monitor_index()
+                if active_index in configured_enabled:
+                    logger.debug(f"Smart capture: only capturing monitor {active_index}")
+                    return [active_index]
                 else:
-                    # Only capture the active monitor if it's enabled in settings
-                    active_index = self.monitor_tracker.get_active_monitor_index()
-                    if active_index in configured_enabled:
-                        logger.debug(f"Smart capture: only capturing monitor {active_index}")
-                        return [active_index]
-                    else:
-                        logger.debug(
-                            f"Smart capture: active monitor {active_index} is not enabled in settings, skipping"
-                        )
-                        return []
+                    logger.debug(
+                        f"Smart capture: active monitor {active_index} is not enabled in settings, skipping"
+                    )
+                    return []
 
             # Return configured enabled monitors (smart capture disabled)
             return configured_enabled
