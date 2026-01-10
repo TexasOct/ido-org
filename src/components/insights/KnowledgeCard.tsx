@@ -10,9 +10,16 @@ interface KnowledgeCardProps {
   onToggleFavorite: (id: string) => void
   onDelete: (id: string) => void
   onView: (knowledge: InsightKnowledge) => void
+  isAnalyzing?: boolean
 }
 
-export function KnowledgeCard({ knowledge, onToggleFavorite, onDelete, onView }: KnowledgeCardProps) {
+export function KnowledgeCard({
+  knowledge,
+  onToggleFavorite,
+  onDelete,
+  onView,
+  isAnalyzing = false
+}: KnowledgeCardProps) {
   const { t } = useTranslation()
 
   // Get category from first keyword
@@ -42,7 +49,8 @@ export function KnowledgeCard({ knowledge, onToggleFavorite, onDelete, onView }:
             <span>{formatDate(knowledge.createdAt)}</span>
           </CardDescription>
 
-          <div className="flex shrink-0 gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <div
+            className={`flex shrink-0 gap-1 ${isAnalyzing ? 'opacity-50' : 'opacity-0'} transition-opacity group-hover:opacity-100`}>
             <Button
               variant="ghost"
               size="icon"
@@ -51,7 +59,8 @@ export function KnowledgeCard({ knowledge, onToggleFavorite, onDelete, onView }:
                 onView(knowledge)
               }}
               className="h-8 w-8"
-              title={t('insights.view')}>
+              title={t('insights.view')}
+              disabled={isAnalyzing}>
               <Eye className="h-4 w-4" />
             </Button>
             <Button
@@ -62,7 +71,8 @@ export function KnowledgeCard({ knowledge, onToggleFavorite, onDelete, onView }:
                 onToggleFavorite(knowledge.id)
               }}
               className="h-8 w-8"
-              title={knowledge.favorite ? t('insights.unfavorited') : t('insights.favorited')}>
+              title={knowledge.favorite ? t('insights.unfavorited') : t('insights.favorited')}
+              disabled={isAnalyzing}>
               <Star className={`h-4 w-4 ${knowledge.favorite ? 'fill-yellow-400 text-yellow-400' : ''}`} />
             </Button>
             <Button
@@ -73,7 +83,8 @@ export function KnowledgeCard({ knowledge, onToggleFavorite, onDelete, onView }:
                 onDelete(knowledge.id)
               }}
               className="h-8 w-8"
-              title={t('insights.delete')}>
+              title={t('insights.delete')}
+              disabled={isAnalyzing}>
               <Trash2 className="h-4 w-4" />
             </Button>
           </div>

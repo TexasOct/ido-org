@@ -35,6 +35,7 @@ export default function AIKnowledgeView() {
   const updateKnowledge = useInsightsStore((state) => state.updateKnowledge)
   const analyzeMerge = useInsightsStore((state) => state.analyzeMerge)
   const executeMerge = useInsightsStore((state) => state.executeMerge)
+  const isAnalyzing = useInsightsStore((state) => state.isAnalyzing)
   const lastError = useInsightsStore((state) => state.lastError)
   const clearError = useInsightsStore((state) => state.clearError)
 
@@ -47,7 +48,6 @@ export default function AIKnowledgeView() {
   const [showMergeDialog, setShowMergeDialog] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
   const [mergeSuggestions, setMergeSuggestions] = useState<MergeSuggestion[]>([])
-  const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [isMerging, setIsMerging] = useState(false)
 
   // Retry dialog state for LLM errors
@@ -112,7 +112,6 @@ export default function AIKnowledgeView() {
 
   const handleStartAnalysis = async (config: MergeConfig) => {
     setShowMergeDialog(false)
-    setIsAnalyzing(true)
 
     try {
       const suggestions = await analyzeMerge({
@@ -138,8 +137,6 @@ export default function AIKnowledgeView() {
       } else {
         toast.error(t('insights.merge.error', { error: errorMessage }))
       }
-    } finally {
-      setIsAnalyzing(false)
     }
   }
 
@@ -257,7 +254,7 @@ export default function AIKnowledgeView() {
               <Sparkles className="mr-2 h-4 w-4" />
               {isAnalyzing ? t('insights.merge.analyzing') : t('insights.smartMerge')}
             </Button>
-            <Button size="sm" onClick={() => setNewNoteDialogOpen(true)}>
+            <Button size="sm" onClick={() => setNewNoteDialogOpen(true)} disabled={isAnalyzing}>
               <Plus className="mr-2 h-4 w-4" />
               {t('insights.newNote')}
             </Button>
@@ -322,6 +319,7 @@ export default function AIKnowledgeView() {
                   onToggleFavorite={handleToggleFavorite}
                   onDelete={handleDelete}
                   onView={handleViewKnowledge}
+                  isAnalyzing={isAnalyzing}
                 />
               ))}
             </div>
@@ -330,7 +328,12 @@ export default function AIKnowledgeView() {
       </div>
 
       {/* New Note Dialog */}
-      <NewNoteDialog open={newNoteDialogOpen} onOpenChange={setNewNoteDialogOpen} onCreateNote={handleCreateNote} />
+      <NewNoteDialog
+        open={newNoteDialogOpen}
+        onOpenChange={setNewNoteDialogOpen}
+        onCreateNote={handleCreateNote}
+        isAnalyzing={isAnalyzing}
+      />
 
       {/* Knowledge Detail Dialog */}
       <KnowledgeDetailDialog
@@ -338,6 +341,7 @@ export default function AIKnowledgeView() {
         open={detailDialogOpen}
         onOpenChange={setDetailDialogOpen}
         onUpdate={handleUpdateKnowledge}
+        isAnalyzing={isAnalyzing}
       />
 
       {/* Knowledge Merge Dialogs */}

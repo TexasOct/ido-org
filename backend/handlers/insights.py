@@ -43,6 +43,17 @@ from . import api_handler
 logger = get_logger(__name__)
 
 
+async def _check_knowledge_merge_lock() -> None:
+    """Check if knowledge analysis is in progress and raise error if so"""
+    from services.knowledge_merger import KnowledgeMerger
+
+    if KnowledgeMerger.is_locked():
+        raise RuntimeError(
+            "Cannot modify knowledge while analysis is in progress. "
+            "Please wait for the analysis to complete or cancel it."
+        )
+
+
 def get_pipeline():
     """Get new architecture processing pipeline instance"""
     coordinator = get_coordinator()
@@ -204,6 +215,9 @@ async def delete_knowledge(body: DeleteItemRequest) -> Dict[str, Any]:
     @returns Deletion result
     """
     try:
+        # Check if analysis is in progress
+        await _check_knowledge_merge_lock()
+
         db, _ = _get_data_access()
         await db.knowledge.delete(body.id)
 
@@ -237,6 +251,9 @@ async def toggle_knowledge_favorite(body: ToggleKnowledgeFavoriteRequest) -> Tog
     @returns Updated knowledge data with new favorite status
     """
     try:
+        # Check if analysis is in progress
+        await _check_knowledge_merge_lock()
+
         db, _ = _get_data_access()
         new_favorite = await db.knowledge.toggle_favorite(body.id)
 
@@ -290,6 +307,9 @@ async def create_knowledge(body: CreateKnowledgeRequest) -> CreateKnowledgeRespo
     @returns Created knowledge data
     """
     try:
+        # Check if analysis is in progress
+        await _check_knowledge_merge_lock()
+
         db, _ = _get_data_access()
 
         # Generate unique ID
@@ -350,6 +370,9 @@ async def update_knowledge(body: UpdateKnowledgeRequest) -> UpdateKnowledgeRespo
     @returns Updated knowledge data
     """
     try:
+        # Check if analysis is in progress
+        await _check_knowledge_merge_lock()
+
         db, _ = _get_data_access()
 
         # Check if knowledge exists

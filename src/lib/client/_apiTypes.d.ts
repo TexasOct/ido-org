@@ -973,6 +973,10 @@ cleanup_expired_todos: {
 input: void | undefined
 output: RootModelDictStrAny
 }
+get_analysis_status: {
+input: void | undefined
+output: RootModelDictStrAny
+}
 analyze_knowledge_merge: {
 input: AnalyzeKnowledgeMergeRequest
 output: AnalyzeKnowledgeMergeResponse

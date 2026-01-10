@@ -97,7 +97,7 @@ export function MergeSuggestionsDialog({
         </div>
 
         <ScrollArea className="h-[400px] pr-4">
-          <div className="space-y-3">
+          <div className="space-y-3 pb-4">
             {suggestions.map((suggestion) => (
               <SuggestionCard
                 key={suggestion.groupId}
@@ -110,7 +110,7 @@ export function MergeSuggestionsDialog({
           </div>
         </ScrollArea>
 
-        <DialogFooter>
+        <DialogFooter className="mt-6">
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>

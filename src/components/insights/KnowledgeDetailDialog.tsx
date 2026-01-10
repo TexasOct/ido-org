@@ -21,9 +21,16 @@ interface KnowledgeDetailDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onUpdate: (id: string, title: string, description: string, keywords: string[]) => Promise<void>
+  isAnalyzing?: boolean
 }
 
-export function KnowledgeDetailDialog({ knowledge, open, onOpenChange, onUpdate }: KnowledgeDetailDialogProps) {
+export function KnowledgeDetailDialog({
+  knowledge,
+  open,
+  onOpenChange,
+  onUpdate,
+  isAnalyzing = false
+}: KnowledgeDetailDialogProps) {
   const { t } = useTranslation()
   const [isEditing, setIsEditing] = useState(false)
   const [title, setTitle] = useState('')
@@ -90,7 +97,12 @@ export function KnowledgeDetailDialog({ knowledge, open, onOpenChange, onUpdate 
           <div className="flex items-center justify-between">
             <DialogTitle>{isEditing ? t('insights.editKnowledge') : t('insights.knowledgeDetails')}</DialogTitle>
             {!isEditing && (
-              <Button variant="ghost" size="sm" onClick={() => setIsEditing(true)} className="gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsEditing(true)}
+                className="gap-2"
+                disabled={isAnalyzing}>
                 <Pencil className="h-4 w-4" />
                 {t('insights.edit')}
               </Button>
@@ -149,6 +161,7 @@ export function KnowledgeDetailDialog({ knowledge, open, onOpenChange, onUpdate 
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder={t('insights.enterTitle')}
+                  disabled={isAnalyzing}
                 />
               </div>
 
@@ -161,6 +174,7 @@ export function KnowledgeDetailDialog({ knowledge, open, onOpenChange, onUpdate 
                   placeholder={t('insights.enterDescription')}
                   rows={8}
                   className="resize-none"
+                  disabled={isAnalyzing}
                 />
               </div>
 
@@ -171,6 +185,7 @@ export function KnowledgeDetailDialog({ knowledge, open, onOpenChange, onUpdate 
                   value={keywordsInput}
                   onChange={(e) => setKeywordsInput(e.target.value)}
                   placeholder={t('insights.enterKeywords')}
+                  disabled={isAnalyzing}
                 />
                 <p className="text-muted-foreground text-xs">
                   {t('insights.keywordsHint', 'Separate keywords with commas')}
@@ -183,15 +198,17 @@ export function KnowledgeDetailDialog({ knowledge, open, onOpenChange, onUpdate 
         <DialogFooter>
           {isEditing ? (
             <>
-              <Button variant="outline" onClick={handleCancel} disabled={isSubmitting}>
+              <Button variant="outline" onClick={handleCancel} disabled={isSubmitting || isAnalyzing}>
                 {t('insights.cancel')}
               </Button>
-              <Button onClick={handleSubmit} disabled={!title.trim() || !description.trim() || isSubmitting}>
+              <Button
+                onClick={handleSubmit}
+                disabled={!title.trim() || !description.trim() || isSubmitting || isAnalyzing}>
                 {isSubmitting ? t('insights.loading') : t('insights.save')}
               </Button>
             </>
           ) : (
-            <Button variant="outline" onClick={handleClose}>
+            <Button variant="outline" onClick={handleClose} disabled={isAnalyzing}>
               {t('insights.close')}
             </Button>
           )}

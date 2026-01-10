@@ -3,7 +3,7 @@ Knowledge merge handlers for analyzing and merging similar knowledge entries.
 """
 
 from datetime import datetime
-from typing import cast
+from typing import Any, Dict, cast
 
 from core.db import get_db
 from core.logger import get_logger
@@ -27,6 +27,33 @@ from services.knowledge_merger import KnowledgeMerger
 from . import api_handler
 
 logger = get_logger(__name__)
+
+
+@api_handler(
+    method="GET",
+    path="/knowledge/analysis-status",
+    tags=["knowledge"],
+    summary="Get knowledge analysis status",
+    description="Check if knowledge analysis is currently in progress",
+)
+async def get_analysis_status() -> Dict[str, Any]:
+    """Get current knowledge analysis status"""
+    try:
+        is_locked = KnowledgeMerger.is_locked()
+        return {
+            "success": True,
+            "data": {
+                "is_analyzing": is_locked,
+            },
+            "timestamp": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        logger.error(f"Failed to get analysis status: {e}", exc_info=True)
+        return {
+            "success": False,
+            "message": f"Failed to get analysis status: {str(e)}",
+            "timestamp": datetime.now().isoformat(),
+        }
 
 
 @api_handler(

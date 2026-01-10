@@ -239,6 +239,52 @@ class KnowledgeRepository(BaseRepository):
             )
             return 0
 
+    async def hard_delete(self, knowledge_id: str) -> bool:
+        """Hard delete knowledge from database (permanent deletion)"""
+        try:
+            with self._get_conn() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM knowledge WHERE id = ?", (knowledge_id,)
+                )
+                conn.commit()
+
+                if cursor.rowcount > 0:
+                    logger.debug(f"Hard deleted knowledge: {knowledge_id}")
+                    # Send event to frontend
+                    from core.events import emit_knowledge_deleted
+                    emit_knowledge_deleted(knowledge_id)
+                    return True
+                return False
+        except Exception as e:
+            logger.error(
+                f"Failed to hard delete knowledge {knowledge_id}: {e}", exc_info=True
+            )
+            raise
+
+    async def hard_delete_batch(self, knowledge_ids: List[str]) -> int:
+        """Hard delete multiple knowledge rows (permanent deletion)"""
+        if not knowledge_ids:
+            return 0
+
+        try:
+            placeholders = ",".join("?" for _ in knowledge_ids)
+            with self._get_conn() as conn:
+                cursor = conn.execute(
+                    f"DELETE FROM knowledge WHERE id IN ({placeholders})",
+                    knowledge_ids,
+                )
+                conn.commit()
+                deleted_count = cursor.rowcount
+
+                if deleted_count > 0:
+                    logger.debug(f"Hard deleted {deleted_count} knowledge entries")
+
+                return deleted_count
+
+        except Exception as e:
+            logger.error(f"Failed to batch hard delete knowledge: {e}", exc_info=True)
+            return 0
+
     async def toggle_favorite(self, knowledge_id: str) -> Optional[bool]:
         """Toggle favorite status of knowledge
 

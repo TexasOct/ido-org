@@ -17,9 +17,10 @@ interface NewNoteDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCreateNote: (title: string, description: string, keywords: string[]) => Promise<void>
+  isAnalyzing?: boolean
 }
 
-export function NewNoteDialog({ open, onOpenChange, onCreateNote }: NewNoteDialogProps) {
+export function NewNoteDialog({ open, onOpenChange, onCreateNote, isAnalyzing = false }: NewNoteDialogProps) {
   const { t } = useTranslation()
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -78,6 +79,7 @@ export function NewNoteDialog({ open, onOpenChange, onCreateNote }: NewNoteDialo
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t('insights.enterTitle')}
               autoFocus
+              disabled={isAnalyzing}
             />
           </div>
 
@@ -90,6 +92,7 @@ export function NewNoteDialog({ open, onOpenChange, onCreateNote }: NewNoteDialo
               placeholder={t('insights.enterDescription')}
               rows={6}
               className="resize-none"
+              disabled={isAnalyzing}
             />
           </div>
 
@@ -100,15 +103,16 @@ export function NewNoteDialog({ open, onOpenChange, onCreateNote }: NewNoteDialo
               value={keywordsInput}
               onChange={(e) => setKeywordsInput(e.target.value)}
               placeholder={t('insights.enterKeywords')}
+              disabled={isAnalyzing}
             />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={handleCancel} disabled={isSubmitting}>
+          <Button variant="outline" onClick={handleCancel} disabled={isSubmitting || isAnalyzing}>
             {t('insights.cancel')}
           </Button>
-          <Button onClick={handleSubmit} disabled={!title.trim() || !description.trim() || isSubmitting}>
+          <Button onClick={handleSubmit} disabled={!title.trim() || !description.trim() || isSubmitting || isAnalyzing}>
             {isSubmitting ? t('insights.loading') : t('insights.createNote')}
           </Button>
         </DialogFooter>

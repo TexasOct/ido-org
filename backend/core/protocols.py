@@ -268,6 +268,14 @@ class KnowledgeRepositoryProtocol(Protocol):
         """Soft delete knowledge"""
         ...
 
+    async def hard_delete(self, knowledge_id: str) -> bool:
+        """Hard delete knowledge (permanent deletion)"""
+        ...
+
+    async def hard_delete_batch(self, knowledge_ids: List[str]) -> int:
+        """Hard delete multiple knowledge entries (permanent deletion)"""
+        ...
+
     async def update(
         self,
         knowledge_id: str,

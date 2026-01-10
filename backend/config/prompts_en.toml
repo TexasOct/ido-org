@@ -2813,7 +2813,7 @@ Your task is to analyze a list of knowledge entries and identify groups that sho
 Guidelines:
 - Only suggest merging when similarity score is above the threshold
 - Preserve all unique information when creating merged descriptions
-- Combine keywords from all entries in the group
+- **REFINE keywords**: Select only 2-4 most essential, representative tags from all entries (avoid redundancy, keep core concepts)
 - Provide clear reasons for why entries should be merged
 - If entries are distinct despite similar keywords, keep them separate"""
 
@@ -2831,7 +2831,7 @@ user_prompt_template = """Analyze the following knowledge entries for similarity
 2. For each group, generate:
    - Merged title (concise, captures all content)
    - Merged description (comprehensive, preserves all unique info)
-   - Combined keywords
+   - **Refined keywords** (2-4 most essential, representative tags - NO redundancy)
    - Similarity score (0.0-1.0)
    - Merge reason (brief explanation)
 
@@ -2850,6 +2850,8 @@ user_prompt_template = """Analyze the following knowledge entries for similarity
   ]
 }}
 ```
+
+**Important**: Keep merged_keywords concise (2-4 tags max). Select only the most essential, representative tags from the group. Avoid redundant or overly specific tags.
 
 If no similar entries found, return: {{"merge_clusters": []}}"""
 

@@ -43,6 +43,7 @@ interface InsightsState {
   loadingKnowledge: boolean
   loadingTodos: boolean
   loadingDiaries: boolean
+  isAnalyzing: boolean // Track if knowledge analysis is in progress
   lastError?: string
 
   fetchRecentEvents: (limit?: number) => Promise<void>
@@ -82,6 +83,7 @@ interface InsightsState {
   getScheduledTodos: () => InsightTodo[]
 
   createDiaryForDate: (date: string) => Promise<InsightDiary>
+  checkAnalysisStatus: () => Promise<boolean>
   clearError: () => void
   setRecentEventsLimit: (limit: number) => void
 }
@@ -101,6 +103,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
   loadingKnowledge: false,
   loadingTodos: false,
   loadingDiaries: false,
+  isAnalyzing: false,
   lastError: undefined,
 
   fetchRecentEvents: async (limit) => {
@@ -205,6 +208,7 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
 
   // Knowledge merge methods
   analyzeMerge: async (config) => {
+    set({ isAnalyzing: true })
     try {
       const response = await analyzeKnowledgeMerge({
         filterByKeyword: config.filterByKeyword || undefined,
@@ -220,6 +224,8 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     } catch (error) {
       console.error('Failed to analyze knowledge merge:', error)
       throw error
+    } finally {
+      set({ isAnalyzing: false })
     }
   },
 
@@ -321,6 +327,23 @@ export const useInsightsStore = create<InsightsState>((set, get) => ({
     const diary = await generateDiary(date)
     set((state) => ({ diaries: [diary, ...state.diaries.filter((item) => item.id !== diary.id)] }))
     return diary
+  },
+
+  checkAnalysisStatus: async () => {
+    try {
+      const { getAnalysisStatus } = await import('@/lib/client/apiClient')
+      const response = await getAnalysisStatus()
+
+      if (response.success && response.data) {
+        const isAnalyzing = response.data.isAnalyzing
+        set({ isAnalyzing })
+        return isAnalyzing
+      }
+      return false
+    } catch (error) {
+      console.error('Failed to check analysis status:', error)
+      return false
+    }
   },
 
   clearError: () => set({ lastError: undefined }),

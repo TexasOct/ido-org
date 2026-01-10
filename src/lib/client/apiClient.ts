@@ -820,6 +820,16 @@ export async function cleanupExpiredTodos(
 }
 
 /**
+ * Get current knowledge analysis status
+ */
+export async function getAnalysisStatus(
+    body: Commands["get_analysis_status"]["input"],
+    options?: InvokeOptions
+): Promise<Commands["get_analysis_status"]["output"]> {
+    return await pyInvoke("get_analysis_status", body, options);
+}
+
+/**
  * Analyze knowledge entries for similarity and generate merge suggestions.
  * Uses LLM to detect similar content and propose merges.
  */
