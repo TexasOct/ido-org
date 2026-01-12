@@ -158,7 +158,7 @@ export function PomodoroTimerDisplay() {
               </div>
 
               {/* Colon separator */}
-              <span className="text-muted-foreground/60 font-mono text-3xl font-light">:</span>
+              <span className="text-muted-foreground/60 font-mono text-2xl font-light">:</span>
 
               {/* Seconds (fixed at 00 in idle mode) */}
               <div className="flex flex-col items-center">

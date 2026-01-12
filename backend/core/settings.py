@@ -776,6 +776,45 @@ class SettingsManager:
 
         return merged
 
+    def get_font_size(self) -> str:
+        """Get current font size setting
+
+        Returns:
+            Font size (small, default, large, extra-large), defaults to default
+        """
+        return self.get("ui.font_size", "default")
+
+    def set_font_size(self, font_size: str) -> bool:
+        """Set application font size
+
+        Args:
+            font_size: Font size (small, default, large, extra-large)
+
+        Returns:
+            True if successful, False otherwise
+        """
+        if not self.config_loader:
+            logger.error("Configuration loader not initialized")
+            return False
+
+        # Validate font size
+        valid_sizes = ["small", "default", "large", "extra-large"]
+        if font_size not in valid_sizes:
+            logger.error(f"Invalid font size: {font_size}. Must be one of {valid_sizes}")
+            return False
+
+        try:
+            # Update configuration file
+            result = self.config_loader.set("ui.font_size", font_size)
+            if result:
+                # Update cache to ensure immediate effect
+                self._config_cache["ui.font_size"] = font_size
+                logger.debug(f"✓ Application font size updated to: {font_size}")
+            return result
+        except Exception as e:
+            logger.error(f"Failed to set font size: {e}")
+            return False
+
     def set_language(self, language: str) -> bool:
         """Set application language
 

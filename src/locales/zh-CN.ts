@@ -555,6 +555,11 @@ export const zhCN = {
     title: '设置',
     language: '语言',
     theme: '主题',
+    fontSize: '字体大小',
+    fontSizeSmall: '小 (12px)',
+    fontSizeDefault: '默认 (14px)',
+    fontSizeLarge: '大 (16px)',
+    fontSizeExtraLarge: '特大 (18px)',
     saveSettings: '保存设置',
     description: '配置应用参数和偏好设置',
     categories: {

@@ -97,12 +97,12 @@ export function PomodoroStats() {
             <div className="flex flex-col items-center gap-0.5">
               <span
                 className={cn(
-                  'text-lg font-bold tabular-nums transition-all duration-500',
+                  'text-[18px] font-bold tabular-nums transition-all duration-500',
                   loading ? 'opacity-50 blur-sm' : 'blur-0 opacity-100'
                 )}>
                 {loading ? '-' : item.value}
               </span>
-              <span className="text-muted-foreground text-center text-[10px] leading-tight font-medium">
+              <span className="text-muted-foreground text-center text-[11px] leading-tight font-medium">
                 {item.label}
               </span>
             </div>

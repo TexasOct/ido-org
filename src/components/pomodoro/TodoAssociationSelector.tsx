@@ -78,9 +78,9 @@ export function TodoAssociationSelector({
             </Button>
           </div>
           <div className="bg-muted/30 border-border/40 rounded-lg border p-3">
-            <p className="text-sm leading-snug font-semibold">{selectedTodo.title}</p>
+            <p className="text-[14px] leading-snug font-semibold">{selectedTodo.title}</p>
             {selectedTodo.description && (
-              <p className="text-muted-foreground mt-1 text-xs leading-relaxed">{selectedTodo.description}</p>
+              <p className="text-muted-foreground mt-1 text-[12px] leading-relaxed">{selectedTodo.description}</p>
             )}
           </div>
         </div>
@@ -106,7 +106,7 @@ export function TodoAssociationSelector({
                 value="none"
                 onValueChange={(value) => onTodoSelect(value === 'none' ? null : value)}
                 disabled={disabled}>
-                <SelectTrigger className="h-9 !text-xs">
+                <SelectTrigger className="h-9 text-xs!">
                   <SelectValue placeholder={t('pomodoro.todoAssociation.selectTodo')} />
                 </SelectTrigger>
                 <SelectContent position="popper" className="max-h-[280px] w-(--radix-select-trigger-width)">
@@ -114,9 +114,9 @@ export function TodoAssociationSelector({
                   {pendingTodos.map((todo) => (
                     <SelectItem key={todo.id} value={todo.id}>
                       <div className="flex flex-col gap-0.5">
-                        <span className="text-xs font-medium">{todo.title}</span>
+                        <span className="text-[14px] font-medium">{todo.title}</span>
                         {todo.description && (
-                          <span className="text-muted-foreground line-clamp-1 text-[10px]">{todo.description}</span>
+                          <span className="text-muted-foreground line-clamp-1 text-[12px]">{todo.description}</span>
                         )}
                       </div>
                     </SelectItem>
@@ -138,7 +138,7 @@ export function TodoAssociationSelector({
               onChange={(e) => onUserIntentChange?.(e.target.value)}
               maxLength={200}
               disabled={disabled}
-              className="h-9 !text-xs placeholder:!text-xs"
+              className="h-10 text-[14px]! placeholder:text-[12px]!"
             />
           </div>
         </div>

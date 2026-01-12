@@ -558,6 +558,11 @@ export const en = {
     title: 'Settings',
     language: 'Language',
     theme: 'Theme',
+    fontSize: 'Font Size',
+    fontSizeSmall: 'Small (12px)',
+    fontSizeDefault: 'Default (14px)',
+    fontSizeLarge: 'Large (16px)',
+    fontSizeExtraLarge: 'Extra Large (18px)',
     saveSettings: 'Save Settings',
     description: 'Configure application parameters and preferences',
     categories: {

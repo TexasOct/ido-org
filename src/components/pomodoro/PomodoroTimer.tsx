@@ -242,10 +242,10 @@ export function PomodoroTimer({
               {/* Current task display - Only show when active */}
               {status === 'active' && session && userIntent && (
                 <div className="bg-muted/30 ring-border/50 w-full max-w-2xl rounded-2xl px-6 py-4 text-center ring-1 backdrop-blur-sm transition-all duration-300">
-                  <p className="text-muted-foreground mb-1.5 text-xs font-medium tracking-wider uppercase">
+                  <p className="text-muted-foreground mb-1.5 text-sm font-medium tracking-wider uppercase">
                     {t('pomodoro.intent.current')}
                   </p>
-                  <p className="text-lg leading-snug font-semibold">{userIntent}</p>
+                  <p className="text-xl leading-snug font-semibold">{userIntent}</p>
                 </div>
               )}
 

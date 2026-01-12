@@ -105,7 +105,7 @@ export function PomodoroTodoList({ selectedTodoId, onTodoSelect, disabled = fals
                       {/* Title */}
                       <h4
                         className={cn(
-                          'truncate text-sm leading-snug font-semibold transition-colors',
+                          'truncate text-[14px] leading-snug font-semibold transition-colors',
                           isSelected ? 'text-primary' : 'text-foreground group-hover:text-foreground'
                         )}>
                         {todo.title}
@@ -113,7 +113,9 @@ export function PomodoroTodoList({ selectedTodoId, onTodoSelect, disabled = fals
 
                       {/* Description */}
                       {todo.description && (
-                        <p className="text-muted-foreground line-clamp-2 text-xs leading-relaxed">{todo.description}</p>
+                        <p className="text-muted-foreground line-clamp-2 text-[12px] leading-relaxed">
+                          {todo.description}
+                        </p>
                       )}
 
                       {/* Keywords */}
@@ -123,7 +125,7 @@ export function PomodoroTodoList({ selectedTodoId, onTodoSelect, disabled = fals
                             <div
                               key={idx}
                               className={cn(
-                                'flex max-w-[140px] items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors',
+                                'flex max-w-[140px] items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] font-medium transition-colors',
                                 isSelected
                                   ? 'bg-primary/20 text-primary'
                                   : 'bg-muted/60 text-muted-foreground group-hover:bg-muted'
@@ -133,7 +135,7 @@ export function PomodoroTodoList({ selectedTodoId, onTodoSelect, disabled = fals
                             </div>
                           ))}
                           {todo.keywords.length > 3 && (
-                            <span className="text-muted-foreground/60 text-[10px]">+{todo.keywords.length - 3}</span>
+                            <span className="text-muted-foreground/60 text-[11px]">+{todo.keywords.length - 3}</span>
                           )}
                         </div>
                       )}

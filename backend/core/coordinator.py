@@ -5,7 +5,7 @@ Responsible for coordinating the complete lifecycle of PerceptionManager and Pro
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from config.loader import get_config
 from core.db import get_db
@@ -896,6 +896,49 @@ class PipelineCoordinator:
             self.perception_manager.clear_pomodoro_session()
 
         logger.info(f"✓ Idle mode resumed - perception stopped (exited session: {session_id})")
+
+    async def force_process_records(self, records: List[Any]) -> Dict[str, Any]:
+        """
+        Force process records immediately (used for phase settlement)
+
+        This method bypasses the normal processing loop and directly processes
+        records through the pipeline. Used to ensure no data loss during phase transitions.
+
+        Args:
+            records: List of RawRecord objects to process
+
+        Returns:
+            Processing result with events and activities count
+        """
+        if not records:
+            logger.debug("No records to force process")
+            return {"processed": 0, "events": [], "activities": []}
+
+        logger.info(f"Force processing {len(records)} records for phase settlement")
+
+        try:
+            if not self.processing_pipeline:
+                logger.error("Processing pipeline not available")
+                return {"error": "Processing pipeline not available"}
+
+            # Directly process through the pipeline
+            result = await self.processing_pipeline.process_raw_records(records)
+
+            # Update last processed timestamp
+            if records:
+                latest_record_time = max(record.timestamp for record in records)
+                self._last_processed_timestamp = latest_record_time
+
+            logger.info(
+                f"✓ Force processing completed: "
+                f"{len(result.get('events', []))} events, {len(result.get('activities', []))} activities"
+            )
+
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to force process records: {e}", exc_info=True)
+            return {"error": str(e)}
 
 
 def get_coordinator() -> PipelineCoordinator:

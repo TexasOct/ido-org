@@ -231,6 +231,15 @@ async def update_settings(body: UpdateSettingsRequest) -> UpdateSettingsResponse
                 timestamp=timestamp,
             )
 
+    # Update font size
+    if body.font_size:
+        if not settings.set_font_size(body.font_size):
+            return UpdateSettingsResponse(
+                success=False,
+                message="Failed to update font size. Must be 'small', 'default', 'large', or 'extra-large'",
+                timestamp=timestamp,
+            )
+
     return UpdateSettingsResponse(
         success=True,
         message="Configuration updated successfully",

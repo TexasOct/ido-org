@@ -672,6 +672,7 @@ export type Timestamp36 = string
 export type Databasepath = (string | null)
 export type Screenshotsavepath = (string | null)
 export type Language1 = (string | null)
+export type Fontsize = (string | null)
 export type Success55 = boolean
 export type Message52 = string
 export type Timestamp37 = string
@@ -3135,11 +3136,13 @@ export interface Image {
  * @property databasePath - Path to the database file (optional).
  * @property screenshotSavePath - Path to save screenshots (optional).
  * @property language - Application language (zh or en) (optional).
+ * @property fontSize - Application font size (small, default, large, extra-large) (optional).
  */
 export interface UpdateSettingsRequest {
 databasePath?: Databasepath
 screenshotSavePath?: Screenshotsavepath
 language?: Language1
+fontSize?: Fontsize
 }
 /**
  * Update settings response

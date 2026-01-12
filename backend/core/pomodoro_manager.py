@@ -282,7 +282,32 @@ class PomodoroManager:
                     f"phase={current_round}, id={phase_id}"
                 )
 
-                # Trigger aggregation with phase_id
+                # ★ FORCE SETTLEMENT: Process all pending records before phase ends ★
+                # This ensures no actions are lost during phase transition
+                logger.info(
+                    f"Force settling all pending records for work phase {current_round}"
+                )
+                settlement_result = await self.force_settlement(session_id)
+                if settlement_result.get("success"):
+                    logger.info(
+                        f"✓ Force settlement successful: "
+                        f"{settlement_result['records_processed']['total']} records processed, "
+                        f"{settlement_result['events_generated']} events, "
+                        f"{settlement_result['activities_generated']} activities"
+                    )
+                else:
+                    logger.warning(
+                        f"Force settlement had issues but continuing: "
+                        f"{settlement_result.get('error', 'Unknown error')}"
+                    )
+
+                # ★ CRITICAL: Stop perception AFTER force settlement ★
+                # This ensures no new records are captured while we're aggregating
+                # Stop perception during break
+                await self.coordinator.exit_pomodoro_mode()
+
+                # ★ Trigger aggregation AFTER stopping perception ★
+                # This guarantees all captured records have been processed
                 asyncio.create_task(
                     self._aggregate_work_phase_activities(
                         session_id=session_id,
@@ -292,19 +317,6 @@ class PomodoroManager:
                         phase_id=phase_id,
                     )
                 )
-
-                # Flush ImageConsumer BEFORE stopping perception
-                # This ensures all buffered screenshots from work phase are processed
-                perception_manager = self.coordinator.perception_manager
-                if perception_manager and perception_manager.image_consumer:
-                    remaining = perception_manager.image_consumer.flush()
-                    logger.info(
-                        f"Flushed {len(remaining)} buffered screenshots on work→break transition "
-                        f"(session_id={session_id}, work_phase={current_round})"
-                    )
-
-                # Stop perception during break
-                await self.coordinator.exit_pomodoro_mode()
 
             elif current_phase == "break":
                 # Break completed, switch to next work round
@@ -599,6 +611,23 @@ class PomodoroManager:
                 status=status,
                 processing_status="pending",
             )
+
+            # ★ FORCE SETTLEMENT: Process all pending records before session ends ★
+            # This ensures no actions are lost during session termination
+            logger.info(f"Force settling all pending records for session end")
+            settlement_result = await self.force_settlement(session_id)
+            if settlement_result.get("success"):
+                logger.info(
+                    f"✓ Force settlement successful: "
+                    f"{settlement_result['records_processed']['total']} records processed, "
+                    f"{settlement_result['events_generated']} events, "
+                    f"{settlement_result['activities_generated']} activities"
+                )
+            else:
+                logger.warning(
+                    f"Force settlement had issues but continuing: "
+                    f"{settlement_result.get('error', 'Unknown error')}"
+                )
 
             # IMPORTANT: Flush ImageConsumer BEFORE exiting Pomodoro mode
             # This ensures all buffered screenshots are processed
@@ -1391,3 +1420,105 @@ class PomodoroManager:
         if self.is_active and self.current_session:
             return self.current_session.id
         return None
+
+    async def force_settlement(self, session_id: str) -> Dict[str, Any]:
+        """
+        Force settlement of all pending records for phase completion
+
+        This method ensures no data loss by:
+        1. Flushing ImageConsumer buffered screenshots
+        2. Collecting all unprocessed records from storage
+        3. Immediately processing them through the pipeline
+
+        Called during phase transitions to guarantee all captured actions
+        are processed into events before the phase ends.
+
+        Args:
+            session_id: Pomodoro session ID
+
+        Returns:
+            Dict with settlement results including counts of processed records
+        """
+        logger.info(f"Starting force settlement for session: {session_id}")
+
+        all_records = []
+        records_count = {
+            "image_consumer": 0,
+            "storage": 0,
+            "event_buffer": 0,
+            "total": 0
+        }
+
+        try:
+            # Step 1: Flush ImageConsumer buffered screenshots
+            perception_manager = self.coordinator.perception_manager
+            if perception_manager and perception_manager.image_consumer:
+                logger.debug("Flushing ImageConsumer buffer...")
+                buffered_records = perception_manager.image_consumer.flush()
+                if buffered_records:
+                    all_records.extend(buffered_records)
+                    records_count["image_consumer"] = len(buffered_records)
+                    logger.info(f"Flushed {len(buffered_records)} records from ImageConsumer")
+
+            # Step 2: Get all records from SlidingWindowStorage
+            if perception_manager and perception_manager.storage:
+                logger.debug("Collecting records from SlidingWindowStorage...")
+                storage_records = perception_manager.storage.get_records()
+                if storage_records:
+                    all_records.extend(storage_records)
+                    records_count["storage"] = len(storage_records)
+                    logger.info(f"Collected {len(storage_records)} records from SlidingWindowStorage")
+
+            # Step 3: Get all events from EventBuffer
+            if perception_manager and perception_manager.event_buffer:
+                logger.debug("Collecting events from EventBuffer...")
+                event_records = perception_manager.event_buffer.get_all()
+                if event_records:
+                    all_records.extend(event_records)
+                    records_count["event_buffer"] = len(event_records)
+                    logger.info(f"Collected {len(event_records)} events from EventBuffer")
+
+            records_count["total"] = len(all_records)
+
+            # Step 4: Sort records by timestamp to ensure correct processing order
+            all_records.sort(key=lambda r: r.timestamp)
+
+            # Step 5: Force process all records immediately
+            if all_records:
+                logger.info(
+                    f"Force processing {len(all_records)} total records for phase settlement"
+                )
+                result = await self.coordinator.force_process_records(all_records)
+
+                events_count = len(result.get("events", []))
+                activities_count = len(result.get("activities", []))
+
+                logger.info(
+                    f"✓ Force settlement completed: "
+                    f"{records_count['total']} records → {events_count} events → {activities_count} activities"
+                )
+
+                return {
+                    "success": True,
+                    "records_processed": records_count,
+                    "events_generated": events_count,
+                    "activities_generated": activities_count,
+                    "result": result
+                }
+            else:
+                logger.info("No pending records to settle")
+                return {
+                    "success": True,
+                    "records_processed": records_count,
+                    "events_generated": 0,
+                    "activities_generated": 0,
+                    "message": "No pending records"
+                }
+
+        except Exception as e:
+            logger.error(f"Force settlement failed for session {session_id}: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e),
+                "records_processed": records_count
+            }

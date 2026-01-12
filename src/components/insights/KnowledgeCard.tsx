@@ -40,7 +40,7 @@ export function KnowledgeCard({
       tabIndex={0}>
       <CardHeader className="pb-3">
         <div className="mb-1 flex items-center gap-2">
-          <CardTitle className="min-w-0 flex-1 truncate text-lg leading-tight">{knowledge.title}</CardTitle>
+          <CardTitle className="warp-break-words text-lg leading-tight">{knowledge.title}</CardTitle>
           {knowledge.favorite && <Star className="h-4 w-4 shrink-0 fill-yellow-400 text-yellow-400" />}
         </div>
         <div className="flex items-center justify-between gap-3">
