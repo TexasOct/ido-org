@@ -283,6 +283,28 @@ screenshot_buffer_max_size = 160
 # - 900: 15 minutes (for slow/local LLM providers)
 screenshot_buffer_processing_timeout = 720
 
+# ========== Coding Scene Optimization ==========
+# Coding-specific optimizations for IDEs, terminals, and code editors
+# When a coding app is detected, more permissive thresholds are used
+# to capture small but meaningful changes (cursor movement, typing)
+[coding_optimization]
+# Enable coding scene detection and adaptive thresholds
+enabled = true
+
+# Similarity threshold for coding scenes (0.0-1.0)
+# Higher value = more screenshots retained (less aggressive deduplication)
+# - 0.90: Conservative (may still miss some small changes)
+# - 0.92: Balanced (recommended) ⭐
+# - 0.95: Aggressive (retains most changes, higher LLM cost)
+coding_similarity_threshold = 0.92
+
+# Content analysis thresholds for coding (dark themes)
+# These are lower than default because:
+# - Dark-themed IDEs have low contrast
+# - Typing creates small visual changes
+coding_min_contrast = 25.0
+coding_min_activity = 5.0
+
 # Database configuration
 [database]
 # Database file path (relative to data directory or absolute path)
