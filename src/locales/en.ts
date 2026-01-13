@@ -821,6 +821,20 @@ export const en = {
   pomodoro: {
     title: 'Pomodoro Timer',
     description: 'Focus Mode: Start a Pomodoro session to capture and analyze your focused work.',
+    floating: {
+      trigger: 'Pomodoro',
+      open: 'Open Pomodoro Timer',
+      close: 'Close',
+      activeWork: 'Work in progress',
+      activeBreak: 'Break time',
+      remainingTime: '{{minutes}}m {{seconds}}s remaining'
+    },
+    statsPlaceholder: {
+      title: 'Timer in Global Panel',
+      description:
+        'Use the floating panel on the right to start your focus session. This space is reserved for future statistics and AI insights.',
+      openPanel: 'Open Timer Panel'
+    },
     intent: {
       label: 'Or, enter your plan manually',
       placeholder: 'e.g., Write project documentation',
@@ -913,6 +927,8 @@ export const en = {
     review: {
       title: 'Pomodoro Review',
       description: 'Review your focus sessions and track your productivity',
+      statisticsPanel: 'Statistics',
+      trackYourProgress: 'Track your focus progress and productivity',
       selectDate: 'Select Date',
       session: 'Session',
       sessions: 'Sessions',

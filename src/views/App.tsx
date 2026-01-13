@@ -27,6 +27,7 @@ import { useWindowCloseHandler } from '@/hooks/useWindowCloseHandler'
 import { syncLanguageWithBackend } from '@/lib/i18n'
 import { getSettingsInfo } from '@/lib/client/apiClient'
 import { useSettingsStore } from '@/lib/stores/settings'
+import { FloatingPomodoroPanel, FloatingPomodoroTrigger } from '@/components/pomodoro/floating'
 
 // Create a client for React Query
 const queryClient = new QueryClient({
@@ -191,6 +192,9 @@ function App() {
             <QuitConfirmDialog />
             {/* Exit loading overlay */}
             <ExitOverlay />
+            {/* Global Floating Pomodoro */}
+            <FloatingPomodoroTrigger />
+            <FloatingPomodoroPanel />
             <Toaster position="top-right" richColors closeButton visibleToasts={3} duration={3000} expand={false} />
           </div>
         </ThemeProvider>

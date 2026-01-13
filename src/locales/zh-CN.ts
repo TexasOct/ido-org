@@ -815,6 +815,19 @@ export const zhCN = {
   pomodoro: {
     title: '番茄钟',
     description: '专注模式：开启番茄钟会话以捕获并分析您的专注工作。',
+    floating: {
+      trigger: '番茄钟',
+      open: '打开番茄钟计时器',
+      close: '关闭',
+      activeWork: '工作中',
+      activeBreak: '休息时间',
+      remainingTime: '剩余 {{minutes}}分{{seconds}}秒'
+    },
+    statsPlaceholder: {
+      title: '计时器已移至全局面板',
+      description: '使用右侧的悬浮面板开始专注会话。此处预留用于展示统计图表和 AI 洞察。',
+      openPanel: '打开计时器面板'
+    },
     intent: {
       label: '或者，手动输入计划',
       placeholder: '例如：编写项目文档',
@@ -907,6 +920,8 @@ export const zhCN = {
     review: {
       title: '番茄钟回顾',
       description: '回顾你的专注会话并追踪你的生产力',
+      statisticsPanel: '统计数据',
+      trackYourProgress: '追踪你的专注进度和生产力',
       selectDate: '选择日期',
       session: '会话',
       sessions: '会话',
