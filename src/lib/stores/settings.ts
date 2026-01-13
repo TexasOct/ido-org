@@ -39,13 +39,14 @@ export const useSettingsStore = create<SettingsState>()((set, get) => ({
       const response = await apiClient.getSettingsInfo(undefined)
       if (response && response.data) {
         const data = response.data as any
-        const { database, screenshot } = data
-        if (database || screenshot) {
+        const { database, screenshot, fontSize } = data
+        if (database || screenshot || fontSize) {
           set((state) => ({
             settings: {
               ...state.settings,
               ...(database && { database: { path: database.path } }),
-              ...(screenshot && { screenshot: { savePath: screenshot.savePath } })
+              ...(screenshot && { screenshot: { savePath: screenshot.savePath } }),
+              ...(fontSize && { fontSize })
             },
             loading: false,
             error: null

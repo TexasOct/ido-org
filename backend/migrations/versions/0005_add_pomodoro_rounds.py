@@ -21,7 +21,33 @@ class Migration(BaseMigration):
     description = "Add Pomodoro rounds and phase management"
 
     def up(self, cursor: sqlite3.Cursor) -> None:
-        """Add Pomodoro rounds-related columns"""
+        """Add Pomodoro rounds-related columns and work phases table"""
+
+        # Create pomodoro_work_phases table
+        try:
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS pomodoro_work_phases (
+                    id TEXT PRIMARY KEY,
+                    session_id TEXT NOT NULL,
+                    phase_number INTEGER NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    processing_error TEXT,
+                    retry_count INTEGER DEFAULT 0,
+                    phase_start_time TEXT NOT NULL,
+                    phase_end_time TEXT,
+                    activity_count INTEGER DEFAULT 0,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (session_id) REFERENCES pomodoro_sessions(id) ON DELETE CASCADE,
+                    CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+                    UNIQUE(session_id, phase_number)
+                )
+                """
+            )
+        except Exception:
+            # Table might already exist
+            pass
 
         # Column additions for round management
         columns_to_add = [
@@ -84,6 +110,25 @@ class Migration(BaseMigration):
         except Exception:
             # Index creation failures are usually safe to ignore
             pass
+
+        # Create indexes for pomodoro_work_phases table
+        indexes_to_create = [
+            """
+            CREATE INDEX IF NOT EXISTS idx_work_phases_session
+            ON pomodoro_work_phases(session_id, phase_number)
+            """,
+            """
+            CREATE INDEX IF NOT EXISTS idx_work_phases_status
+            ON pomodoro_work_phases(status)
+            """,
+        ]
+
+        for index_sql in indexes_to_create:
+            try:
+                cursor.execute(index_sql)
+            except Exception:
+                # Index creation failures are usually safe to ignore
+                pass
 
     def down(self, cursor: sqlite3.Cursor) -> None:
         """

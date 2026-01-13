@@ -183,6 +183,7 @@ async def get_settings_info() -> GetSettingsInfoResponse:
             database={"path": settings.get_database_path()},
             screenshot={"savePath": settings.get_screenshot_path()},
             language=settings.get_language(),
+            font_size=settings.get_font_size(),
             image={
                 "memoryCacheSize": int(settings.get("image.memory_cache_size", 500))
             },

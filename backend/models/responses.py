@@ -288,6 +288,7 @@ class SettingsInfoData(BaseModel):
     database: Dict[str, str]
     screenshot: Dict[str, str]
     language: str
+    font_size: str = "default"
     image: Dict[str, Any]
 
 

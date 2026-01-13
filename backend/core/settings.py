@@ -663,12 +663,26 @@ class SettingsManager:
         return value
 
     def get_language(self) -> str:
-        """Get current language setting
+        """Get current language setting from database
 
         Returns:
             Language code (zh or en), defaults to zh
         """
-        return self.get("language.default_language", "zh")
+        if not self.db:
+            return "zh"
+
+        try:
+            # Read from database (user-level setting)
+            language = self.db.settings.get("language.default_language", "zh")
+
+            # Validate value
+            if language not in ["zh", "en"]:
+                return "zh"
+
+            return language
+        except Exception as e:
+            logger.warning(f"Failed to read language from database: {e}")
+            return "zh"
 
     # ======================== Pomodoro Buffering Configuration ========================
 
@@ -777,12 +791,27 @@ class SettingsManager:
         return merged
 
     def get_font_size(self) -> str:
-        """Get current font size setting
+        """Get current font size setting from database
 
         Returns:
             Font size (small, default, large, extra-large), defaults to default
         """
-        return self.get("ui.font_size", "default")
+        if not self.db:
+            return "default"
+
+        try:
+            # Read from database (user-level setting)
+            font_size = self.db.settings.get("ui.font_size", "default")
+
+            # Validate value
+            valid_sizes = ["small", "default", "large", "extra-large"]
+            if font_size not in valid_sizes:
+                return "default"
+
+            return font_size
+        except Exception as e:
+            logger.warning(f"Failed to read font size from database: {e}")
+            return "default"
 
     def set_font_size(self, font_size: str) -> bool:
         """Set application font size

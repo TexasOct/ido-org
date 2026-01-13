@@ -668,11 +668,12 @@ export type Success54 = boolean
 export type Message51 = string
 export type Error51 = string
 export type Language = string
+export type Fontsize = string
 export type Timestamp36 = string
 export type Databasepath = (string | null)
 export type Screenshotsavepath = (string | null)
 export type Language1 = (string | null)
-export type Fontsize = (string | null)
+export type Fontsize1 = (string | null)
 export type Success55 = boolean
 export type Message52 = string
 export type Timestamp37 = string
@@ -3113,6 +3114,7 @@ settings: Settings
 database: Database
 screenshot: Screenshot
 language: Language
+fontSize?: Fontsize
 image: Image
 }
 export interface Settings {
@@ -3142,7 +3144,7 @@ export interface UpdateSettingsRequest {
 databasePath?: Databasepath
 screenshotSavePath?: Screenshotsavepath
 language?: Language1
-fontSize?: Fontsize
+fontSize?: Fontsize1
 }
 /**
  * Update settings response

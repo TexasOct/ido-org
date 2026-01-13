@@ -26,6 +26,7 @@ import { InitialSetupFlow } from '@/components/setup/InitialSetupFlow'
 import { useWindowCloseHandler } from '@/hooks/useWindowCloseHandler'
 import { syncLanguageWithBackend } from '@/lib/i18n'
 import { getSettingsInfo } from '@/lib/client/apiClient'
+import { useSettingsStore } from '@/lib/stores/settings'
 
 // Create a client for React Query
 const queryClient = new QueryClient({
@@ -56,6 +57,7 @@ function App() {
   const [tauriReady, setTauriReady] = useState<boolean>(typeof window !== 'undefined' && '__TAURI__' in window)
   const { isTauriApp, status, errorMessage, retry } = useBackendLifecycle()
   const fetchLive2d = useLive2dStore((state) => state.fetch)
+  const fetchSettings = useSettingsStore((state) => state.fetchSettings)
 
   // Setup flow state - used to hide global guides during initial setup
   const isSetupActive = useSetupStore((s) => s.isActive)
@@ -104,16 +106,17 @@ function App() {
       try {
         console.log('[App] Starting unified initialization sequence')
 
-        // Step 1: Sync frontend language with backend language setting
+        // Step 1: Load all settings (language, fontSize, etc.) from backend
         // This ensures consistency on first startup
         try {
+          await fetchSettings()
           const settingsResponse = await getSettingsInfo(undefined)
           const data = settingsResponse?.data as any
           if (data?.language) {
             await syncLanguageWithBackend(data.language as string)
           }
         } catch (error) {
-          console.error('[App] Failed to sync language with backend:', error)
+          console.error('[App] Failed to sync settings with backend:', error)
         }
 
         if (cancelled) {
@@ -147,7 +150,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [checkAndActivateSetup, fetchLive2d, isTauriApp, status])
+  }, [checkAndActivateSetup, fetchLive2d, fetchSettings, isTauriApp, status])
 
   const renderContent = () => {
     if (!isTauriApp || status === 'ready') {
