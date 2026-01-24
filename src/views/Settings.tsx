@@ -10,6 +10,7 @@ import { PerceptionSettings } from '@/components/settings/PerceptionSettings'
 import { AppearanceSettings } from '@/components/settings/AppearanceSettings'
 import { PermissionsSettings } from '@/components/settings/PermissionsSettings'
 import { PomodoroSettings } from '@/components/settings/PomodoroSettings'
+import { VoiceClockSettings } from '@/components/settings/VoiceClockSettings'
 import { StorageSettings } from '@/components/settings/StorageSettings'
 import { DeveloperSettings } from '@/components/settings/DeveloperSettings'
 import { PageLayout } from '@/components/layout/PageLayout'
@@ -49,7 +50,7 @@ export default function SettingsView() {
         id: 'pomodoro',
         title: t('settings.categories.pomodoro.title'),
         description: t('settings.categories.pomodoro.description'),
-        sections: [<PomodoroSettings key="pomodoro" />]
+        sections: [<PomodoroSettings key="pomodoro-goals" />, <VoiceClockSettings key="voice-clock" />]
       },
       {
         id: 'perception',

@@ -176,6 +176,10 @@ async def get_settings_info() -> GetSettingsInfoResponse:
     settings = get_settings()
     all_settings = settings.get_all()
 
+    # Get voice and clock settings
+    voice_settings = settings.get_voice_settings()
+    clock_settings = settings.get_clock_settings()
+
     return GetSettingsInfoResponse(
         success=True,
         data=SettingsInfoData(
@@ -184,6 +188,22 @@ async def get_settings_info() -> GetSettingsInfoResponse:
             screenshot={"savePath": settings.get_screenshot_path()},
             language=settings.get_language(),
             font_size=settings.get_font_size(),
+            voice={
+                "enabled": voice_settings["enabled"],
+                "volume": voice_settings["volume"],
+                "soundTheme": voice_settings.get("sound_theme", "8bit"),
+                "customSounds": voice_settings.get("custom_sounds")
+            },
+            clock={
+                "enabled": clock_settings["enabled"],
+                "position": clock_settings["position"],
+                "size": clock_settings["size"],
+                "customX": clock_settings.get("custom_x"),
+                "customY": clock_settings.get("custom_y"),
+                "customWidth": clock_settings.get("custom_width"),
+                "customHeight": clock_settings.get("custom_height"),
+                "useCustomPosition": clock_settings.get("use_custom_position", False)
+            },
             image={
                 "memoryCacheSize": int(settings.get("image.memory_cache_size", 500))
             },
@@ -238,6 +258,72 @@ async def update_settings(body: UpdateSettingsRequest) -> UpdateSettingsResponse
             return UpdateSettingsResponse(
                 success=False,
                 message="Failed to update font size. Must be 'small', 'default', 'large', or 'extra-large'",
+                timestamp=timestamp,
+            )
+
+    # Update notification sound settings (kept as voice for backward compatibility)
+    if (
+        body.voice_enabled is not None
+        or body.voice_volume is not None
+        or body.voice_sound_theme is not None
+        or body.voice_custom_sounds is not None
+    ):
+        voice_updates = {}
+        if body.voice_enabled is not None:
+            voice_updates["enabled"] = body.voice_enabled
+        if body.voice_volume is not None:
+            voice_updates["volume"] = body.voice_volume
+        if body.voice_sound_theme is not None:
+            voice_updates["sound_theme"] = body.voice_sound_theme
+        if body.voice_custom_sounds is not None:
+            voice_updates["custom_sounds"] = body.voice_custom_sounds
+
+        try:
+            settings.update_voice_settings(voice_updates)
+        except Exception as e:
+            logger.error(f"Failed to update notification sound settings: {e}")
+            return UpdateSettingsResponse(
+                success=False,
+                message=f"Failed to update voice settings: {str(e)}",
+                timestamp=timestamp,
+            )
+
+    # Update clock settings
+    if (
+        body.clock_enabled is not None
+        or body.clock_position is not None
+        or body.clock_size is not None
+        or body.clock_custom_x is not None
+        or body.clock_custom_y is not None
+        or body.clock_custom_width is not None
+        or body.clock_custom_height is not None
+        or body.clock_use_custom_position is not None
+    ):
+        clock_updates = {}
+        if body.clock_enabled is not None:
+            clock_updates["enabled"] = body.clock_enabled
+        if body.clock_position is not None:
+            clock_updates["position"] = body.clock_position
+        if body.clock_size is not None:
+            clock_updates["size"] = body.clock_size
+        if body.clock_custom_x is not None:
+            clock_updates["custom_x"] = body.clock_custom_x
+        if body.clock_custom_y is not None:
+            clock_updates["custom_y"] = body.clock_custom_y
+        if body.clock_custom_width is not None:
+            clock_updates["custom_width"] = body.clock_custom_width
+        if body.clock_custom_height is not None:
+            clock_updates["custom_height"] = body.clock_custom_height
+        if body.clock_use_custom_position is not None:
+            clock_updates["use_custom_position"] = body.clock_use_custom_position
+
+        try:
+            settings.update_clock_settings(clock_updates)
+        except Exception as e:
+            logger.error(f"Failed to update clock settings: {e}")
+            return UpdateSettingsResponse(
+                success=False,
+                message=f"Failed to update clock settings: {str(e)}",
                 timestamp=timestamp,
             )
 

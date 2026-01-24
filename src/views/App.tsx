@@ -17,6 +17,7 @@ import { useFriendlyChat } from '@/hooks/useFriendlyChat'
 import { useMonitorAutoSync } from '@/hooks/useMonitorAutoSync'
 import { isTauri } from '@/lib/utils/tauri'
 import { syncLive2dWindow } from '@/lib/live2d/windowManager'
+import { useClockSync } from '@/lib/clock/clockSync'
 import { useSetupStore } from '@/lib/stores/setup'
 import { useTray } from '@/hooks/useTray'
 import { QuitConfirmDialog } from '@/components/tray/QuitConfirmDialog'
@@ -68,6 +69,9 @@ function App() {
   // Initialize friendly chat event listeners
   useFriendlyChat()
   useMonitorAutoSync()
+
+  // Initialize clock sync (independent of Pomodoro page)
+  useClockSync()
 
   // Initialize system tray
   useTray()

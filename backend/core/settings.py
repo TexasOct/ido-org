@@ -5,7 +5,7 @@ Stores configuration in database with TOML config as fallback
 
 import json
 import os
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 
 from core.logger import get_logger
 from core.paths import get_data_dir
@@ -790,6 +790,53 @@ class SettingsManager:
 
         return merged
 
+    def get_screenshot_screen_settings(self) -> List[Dict[str, Any]]:
+        """Get screenshot screen settings from database
+
+        Returns:
+            List of screen settings dictionaries
+        """
+        if not self.db:
+            logger.warning("Database not initialized, returning empty screen settings")
+            return []
+
+        try:
+            # Read screen settings from database
+            all_settings = self.db.settings.get_all()
+
+            # Group settings by screen index
+            screens_dict: Dict[int, Dict[str, Any]] = {}
+            for key, value in all_settings.items():
+                if key.startswith("screenshot.screen_settings."):
+                    # Extract screen index and property name
+                    # Format: screenshot.screen_settings.{index}.{property}
+                    parts = key.split(".", 3)
+                    if len(parts) >= 4:
+                        try:
+                            screen_index = int(parts[2])
+                            property_name = parts[3]
+
+                            if screen_index not in screens_dict:
+                                screens_dict[screen_index] = {}
+
+                            # Add the property to the screen dict
+                            screens_dict[screen_index][property_name] = value
+                        except (ValueError, IndexError) as e:
+                            logger.warning(f"Failed to parse screen setting key {key}: {e}")
+                            continue
+
+            # Convert to list and sort by monitor_index
+            screens = list(screens_dict.values())
+            screens.sort(key=lambda x: x.get("monitor_index", 0))
+
+            logger.debug(f"✓ Loaded {len(screens)} screen settings from database")
+            return screens
+        except Exception as e:
+            logger.error(f"Failed to read screenshot screen settings from database: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return []
+
     def get_font_size(self) -> str:
         """Get current font size setting from database
 
@@ -812,6 +859,174 @@ class SettingsManager:
         except Exception as e:
             logger.warning(f"Failed to read font size from database: {e}")
             return "default"
+
+    # ======================== Voice and Clock Settings ========================
+
+    @staticmethod
+    def _default_voice_settings() -> Dict[str, Any]:
+        """Get default notification sound settings (kept as voice for backward compatibility)"""
+        return {
+            "enabled": True,
+            "volume": 0.8,
+            "sound_theme": "8bit",
+            "custom_sounds": None
+        }
+
+    def get_voice_settings(self) -> Dict[str, Any]:
+        """Get voice settings from database"""
+        defaults = self._default_voice_settings()
+
+        if not self.db:
+            logger.warning("Database not initialized, using defaults")
+            return defaults
+
+        try:
+            merged = self._load_dict_from_db("voice", defaults)
+
+            # Validate and normalize values
+            merged["enabled"] = bool(merged.get("enabled", True))
+            volume = merged.get("volume", 0.8)
+            merged["volume"] = max(0.0, min(1.0, float(volume)))
+
+            # Migration: convert old language setting to sound_theme
+            if "language" in merged and "sound_theme" not in merged:
+                merged["sound_theme"] = "8bit"  # Default theme for migrated settings
+                logger.debug("Migrated old voice.language to voice.sound_theme")
+
+            sound_theme = merged.get("sound_theme", "8bit")
+            merged["sound_theme"] = sound_theme if sound_theme in ["8bit", "16bit", "custom"] else "8bit"
+
+            # Handle custom sounds (JSON)
+            custom_sounds = merged.get("custom_sounds")
+            if custom_sounds and isinstance(custom_sounds, str):
+                try:
+                    merged["custom_sounds"] = json.loads(custom_sounds)
+                except json.JSONDecodeError:
+                    merged["custom_sounds"] = None
+            elif not isinstance(custom_sounds, dict):
+                merged["custom_sounds"] = None
+
+            return merged
+        except Exception as exc:
+            logger.warning(f"Failed to read voice settings from database, using defaults: {exc}")
+            return defaults
+
+    def update_voice_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update notification sound settings in database (kept as voice for backward compatibility)"""
+        if not self.db:
+            logger.error("Database not initialized")
+            return self._default_voice_settings()
+
+        current = self.get_voice_settings()
+        merged = current.copy()
+
+        if "enabled" in updates:
+            merged["enabled"] = bool(updates.get("enabled", True))
+        if "volume" in updates:
+            volume = float(updates.get("volume", 0.8))
+            merged["volume"] = max(0.0, min(1.0, volume))
+        if "sound_theme" in updates:
+            sound_theme = updates.get("sound_theme", "8bit")
+            merged["sound_theme"] = sound_theme if sound_theme in ["8bit", "16bit", "custom"] else "8bit"
+        if "custom_sounds" in updates:
+            custom_sounds = updates.get("custom_sounds")
+            merged["custom_sounds"] = custom_sounds if isinstance(custom_sounds, dict) else None
+
+        try:
+            self._save_dict_to_db("voice", merged)
+            logger.debug("✓ Notification sound settings updated in database")
+        except Exception as exc:
+            logger.error(f"Failed to update notification sound settings in database: {exc}")
+
+        return merged
+
+    @staticmethod
+    def _default_clock_settings() -> Dict[str, Any]:
+        """Get default clock settings"""
+        return {
+            "enabled": True,
+            "position": "bottom-right",
+            "size": "medium",
+            "custom_x": None,
+            "custom_y": None,
+            "custom_width": None,
+            "custom_height": None,
+            "use_custom_position": False
+        }
+
+    def get_clock_settings(self) -> Dict[str, Any]:
+        """Get clock settings from database"""
+        defaults = self._default_clock_settings()
+
+        if not self.db:
+            logger.warning("Database not initialized, using defaults")
+            return defaults
+
+        try:
+            merged = self._load_dict_from_db("clock", defaults)
+
+            # Validate and normalize values
+            merged["enabled"] = bool(merged.get("enabled", True))
+            position = merged.get("position", "bottom-right")
+            if position not in ["bottom-right", "bottom-left", "top-right", "top-left"]:
+                position = "bottom-right"
+            merged["position"] = position
+            size = merged.get("size", "medium")
+            if size not in ["small", "medium", "large"]:
+                size = "medium"
+            merged["size"] = size
+
+            # Custom position fields
+            merged["custom_x"] = merged.get("custom_x")
+            merged["custom_y"] = merged.get("custom_y")
+            merged["custom_width"] = merged.get("custom_width")
+            merged["custom_height"] = merged.get("custom_height")
+            merged["use_custom_position"] = bool(merged.get("use_custom_position", False))
+
+            return merged
+        except Exception as exc:
+            logger.warning(f"Failed to read clock settings from database, using defaults: {exc}")
+            return defaults
+
+    def update_clock_settings(self, updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update clock settings in database"""
+        if not self.db:
+            logger.error("Database not initialized")
+            return self._default_clock_settings()
+
+        current = self.get_clock_settings()
+        merged = current.copy()
+
+        if "enabled" in updates:
+            merged["enabled"] = bool(updates.get("enabled", True))
+        if "position" in updates:
+            position = updates.get("position", "bottom-right")
+            if position in ["bottom-right", "bottom-left", "top-right", "top-left"]:
+                merged["position"] = position
+        if "size" in updates:
+            size = updates.get("size", "medium")
+            if size in ["small", "medium", "large"]:
+                merged["size"] = size
+
+        # Custom position fields
+        if "custom_x" in updates:
+            merged["custom_x"] = updates.get("custom_x")
+        if "custom_y" in updates:
+            merged["custom_y"] = updates.get("custom_y")
+        if "custom_width" in updates:
+            merged["custom_width"] = updates.get("custom_width")
+        if "custom_height" in updates:
+            merged["custom_height"] = updates.get("custom_height")
+        if "use_custom_position" in updates:
+            merged["use_custom_position"] = bool(updates.get("use_custom_position", False))
+
+        try:
+            self._save_dict_to_db("clock", merged)
+            logger.debug("✓ Clock settings updated in database")
+        except Exception as exc:
+            logger.error(f"Failed to update clock settings in database: {exc}")
+
+        return merged
 
     def set_font_size(self, font_size: str) -> bool:
         """Set application font size

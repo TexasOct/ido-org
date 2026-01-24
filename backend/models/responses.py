@@ -289,6 +289,8 @@ class SettingsInfoData(BaseModel):
     screenshot: Dict[str, str]
     language: str
     font_size: str = "default"
+    voice: Optional[Dict[str, Any]] = None
+    clock: Optional[Dict[str, Any]] = None
     image: Dict[str, Any]
 
 

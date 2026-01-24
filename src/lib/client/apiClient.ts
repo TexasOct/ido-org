@@ -901,7 +901,7 @@ export async function getMonitorsAutoRefreshStatus(
 /**
  * Get screen capture settings.
  *
- * Returns current screen capture settings from config.
+ * Returns current screen capture settings from database.
  */
 export async function getScreenSettings(
     body: Commands["get_screen_settings"]["input"],

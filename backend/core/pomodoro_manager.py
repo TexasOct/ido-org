@@ -171,6 +171,17 @@ class PomodoroManager:
             # Start phase timer for automatic switching
             self._start_phase_timer(session_id, work_duration_minutes)
 
+            # Emit phase switch event to notify frontend that work phase started
+            from core.events import emit_pomodoro_phase_switched
+
+            emit_pomodoro_phase_switched(
+                session_id=session_id,
+                new_phase="work",
+                current_round=1,
+                total_rounds=total_rounds,
+                completed_rounds=0,
+            )
+
             logger.info(
                 f"✓ Pomodoro session started: {session_id}, "
                 f"intent='{user_intent}', rounds={total_rounds}, "
@@ -838,10 +849,22 @@ class PomodoroManager:
                 )
                 return
 
-            total_rounds = session.get("total_rounds", 4)
+            # Use completed_rounds instead of total_rounds
+            # When user ends session early, only completed_rounds phases are created
+            completed_rounds = session.get("completed_rounds", 0)
+            if completed_rounds == 0:
+                # No work phases completed, skip waiting
+                logger.info(
+                    f"No completed work phases for session {session_id}, "
+                    f"proceeding directly to LLM evaluation"
+                )
+                await self._compute_and_cache_llm_evaluation(session_id, is_first_attempt=True)
+                return
+
+            expected_phases = completed_rounds
             waited_time = 0
 
-            # Wait for all phases to reach terminal state (completed or failed)
+            # Wait for all completed phases to reach terminal state (completed or failed)
             while waited_time < MAX_WAIT_TIME:
                 # Re-check session status in case it was ended during wait
                 session = await self.db.pomodoro_sessions.get_by_id(session_id)
@@ -861,17 +884,17 @@ class PomodoroManager:
                 failed_phases = [p for p in phases if p["status"] == "failed"]
                 terminal_phases = completed_phases + failed_phases
 
-                if len(terminal_phases) >= total_rounds:
-                    # All phases have reached terminal state
+                if len(terminal_phases) >= expected_phases:
+                    # All expected phases have reached terminal state
                     logger.info(
-                        f"All {total_rounds} work phases reached terminal state: "
+                        f"All {expected_phases} work phases reached terminal state: "
                         f"completed={len(completed_phases)}, failed={len(failed_phases)}"
                     )
                     break
 
                 # Still waiting for phases to complete
                 logger.debug(
-                    f"Waiting for work phases: {len(terminal_phases)}/{total_rounds} complete, "
+                    f"Waiting for work phases: {len(terminal_phases)}/{expected_phases} complete, "
                     f"waited {waited_time}s"
                 )
 

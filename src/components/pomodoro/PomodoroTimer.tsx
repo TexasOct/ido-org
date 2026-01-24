@@ -12,6 +12,8 @@ import { usePomodoroPhaseSwitched } from '@/hooks/useTauriEvents'
 import { TodoAssociationSelector } from './TodoAssociationSelector'
 import { PomodoroTimerDisplay } from './PomodoroTimerDisplay'
 import { PomodoroModeSelector } from './PomodoroModeSelector'
+import { usePomodoroAudio } from '@/hooks/usePomodoroAudio'
+import { useClockSync } from '@/lib/clock/clockSync'
 
 interface PomodoroTimerProps {
   userIntent: string
@@ -31,6 +33,12 @@ export function PomodoroTimer({
   const { t } = useTranslation()
   const { status, session, error, config, setStatus, setSession, setError, reset, setConfig } = usePomodoroStore()
   const { todos } = useInsightsStore()
+
+  // Initialize notification sounds
+  usePomodoroAudio()
+
+  // Initialize clock sync
+  useClockSync()
 
   // Listen for phase switches (work -> break or break -> work)
   usePomodoroPhaseSwitched((payload) => {

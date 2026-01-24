@@ -97,8 +97,9 @@ class ScreenshotCapture(BaseCapture):
             settings = get_settings()
 
             # Get configured enabled monitors from settings
-            screens = settings.get("screenshot.screen_settings", None)
-            if not isinstance(screens, list) or len(screens) == 0:
+            # Use the proper method to read screen settings from database
+            screens = settings.get_screenshot_screen_settings()
+            if not screens:
                 # Not configured -> default to primary only
                 configured_enabled = [1]
             else:

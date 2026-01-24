@@ -253,12 +253,36 @@ class UpdateSettingsRequest(BaseModel):
     @property screenshotSavePath - Path to save screenshots (optional).
     @property language - Application language (zh or en) (optional).
     @property fontSize - Application font size (small, default, large, extra-large) (optional).
+    @property voiceEnabled - Enable voice reminders (optional).
+    @property voiceVolume - Voice volume (0.0-1.0) (optional).
+    @property voiceLanguage - Voice language (zh-CN or en-US) (optional).
+    @property voiceId - Voice ID (optional).
+    @property clockEnabled - Enable desktop clock (optional).
+    @property clockPosition - Clock position (bottom-right, bottom-left, top-right, top-left) (optional).
+    @property clockSize - Clock size (small, medium, large) (optional).
+    @property clockCustomX - Custom X position in screen coordinates (optional).
+    @property clockCustomY - Custom Y position in screen coordinates (optional).
+    @property clockCustomWidth - Custom window width (optional).
+    @property clockCustomHeight - Custom window height (optional).
+    @property clockUseCustomPosition - Whether to use custom position instead of preset position (optional).
     """
 
     database_path: Optional[str] = None
     screenshot_save_path: Optional[str] = None
     language: Optional[str] = None
     font_size: Optional[str] = None
+    voice_enabled: Optional[bool] = None
+    voice_volume: Optional[float] = None
+    voice_sound_theme: Optional[str] = None
+    voice_custom_sounds: Optional[dict] = None
+    clock_enabled: Optional[bool] = None
+    clock_position: Optional[str] = None
+    clock_size: Optional[str] = None
+    clock_custom_x: Optional[int] = None
+    clock_custom_y: Optional[int] = None
+    clock_custom_width: Optional[int] = None
+    clock_custom_height: Optional[int] = None
+    clock_use_custom_position: Optional[bool] = None
 
 
 class UpdateLive2DSettingsRequest(BaseModel):

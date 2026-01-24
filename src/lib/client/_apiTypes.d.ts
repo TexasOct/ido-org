@@ -669,11 +669,31 @@ export type Message51 = string
 export type Error51 = string
 export type Language = string
 export type Fontsize = string
+export type Voice = ({
+[k: string]: any
+} | null)
+export type Clock = ({
+[k: string]: any
+} | null)
 export type Timestamp36 = string
 export type Databasepath = (string | null)
 export type Screenshotsavepath = (string | null)
 export type Language1 = (string | null)
 export type Fontsize1 = (string | null)
+export type Voiceenabled = (boolean | null)
+export type Voicevolume = (number | null)
+export type Voicesoundtheme = (string | null)
+export type Voicecustomsounds = ({
+[k: string]: any
+} | null)
+export type Clockenabled = (boolean | null)
+export type Clockposition = (string | null)
+export type Clocksize = (string | null)
+export type Clockcustomx = (number | null)
+export type Clockcustomy = (number | null)
+export type Clockcustomwidth = (number | null)
+export type Clockcustomheight = (number | null)
+export type Clockusecustomposition = (boolean | null)
 export type Success55 = boolean
 export type Message52 = string
 export type Timestamp37 = string
@@ -3115,6 +3135,8 @@ database: Database
 screenshot: Screenshot
 language: Language
 fontSize?: Fontsize
+voice?: Voice
+clock?: Clock
 image: Image
 }
 export interface Settings {
@@ -3139,12 +3161,36 @@ export interface Image {
  * @property screenshotSavePath - Path to save screenshots (optional).
  * @property language - Application language (zh or en) (optional).
  * @property fontSize - Application font size (small, default, large, extra-large) (optional).
+ * @property voiceEnabled - Enable voice reminders (optional).
+ * @property voiceVolume - Voice volume (0.0-1.0) (optional).
+ * @property voiceLanguage - Voice language (zh-CN or en-US) (optional).
+ * @property voiceId - Voice ID (optional).
+ * @property clockEnabled - Enable desktop clock (optional).
+ * @property clockPosition - Clock position (bottom-right, bottom-left, top-right, top-left) (optional).
+ * @property clockSize - Clock size (small, medium, large) (optional).
+ * @property clockCustomX - Custom X position in screen coordinates (optional).
+ * @property clockCustomY - Custom Y position in screen coordinates (optional).
+ * @property clockCustomWidth - Custom window width (optional).
+ * @property clockCustomHeight - Custom window height (optional).
+ * @property clockUseCustomPosition - Whether to use custom position instead of preset position (optional).
  */
 export interface UpdateSettingsRequest {
 databasePath?: Databasepath
 screenshotSavePath?: Screenshotsavepath
 language?: Language1
 fontSize?: Fontsize1
+voiceEnabled?: Voiceenabled
+voiceVolume?: Voicevolume
+voiceSoundTheme?: Voicesoundtheme
+voiceCustomSounds?: Voicecustomsounds
+clockEnabled?: Clockenabled
+clockPosition?: Clockposition
+clockSize?: Clocksize
+clockCustomX?: Clockcustomx
+clockCustomY?: Clockcustomy
+clockCustomWidth?: Clockcustomwidth
+clockCustomHeight?: Clockcustomheight
+clockUseCustomPosition?: Clockusecustomposition
 }
 /**
  * Update settings response

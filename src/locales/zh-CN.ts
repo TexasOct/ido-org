@@ -620,6 +620,45 @@ export const zhCN = {
       updateFailed: '更新目标失败',
       loadFailed: '加载目标失败'
     },
+    voice: {
+      title: '提示音',
+      description: '在番茄钟相位切换时播放提示音',
+      enableTitle: '启用提示音',
+      enableDescription: '在相位切换时播放声音提示',
+      volume: '音量',
+      volumeDescription: '调整提示音的音量大小',
+      soundTheme: '声音主题',
+      soundThemeDescription: '选择提示音风格',
+      theme8bit: '8位复古',
+      theme16bit: '16位经典',
+      themeCustom: '自定义声音',
+      testSounds: '测试提示音',
+      testSoundsDescription: '点击试听提示音效果',
+      testWorkComplete: '🎵 工作完成',
+      testBreakComplete: '🎵 休息完成',
+      testSessionComplete: '🎵 所有番茄钟完成',
+      positions: {
+        'bottom-right': '右下角',
+        'bottom-left': '左下角',
+        'top-right': '右上角',
+        'top-left': '左上角'
+      },
+      sizes: {
+        small: '小 (180px)',
+        medium: '中 (240px)',
+        large: '大 (300px)'
+      }
+    },
+    clock: {
+      title: '桌面时钟',
+      description: '在独立窗口中显示番茄钟倒计时',
+      enableTitle: '启用桌面时钟',
+      enableDescription: '在浮动窗口中显示倒计时',
+      position: '位置',
+      positionDescription: '选择时钟窗口的位置',
+      size: '大小',
+      sizeDescription: '选择时钟窗口的尺寸'
+    },
     savedSuccessfully: '设置保存成功',
     saveFailed: '设置保存失败',
     failedToUpdateDatabase: '更新数据库路径失败',

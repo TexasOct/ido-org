@@ -623,6 +623,45 @@ export const en = {
       updateFailed: 'Failed to update goals',
       loadFailed: 'Failed to load goals'
     },
+    voice: {
+      title: 'Notification Sounds',
+      description: 'Play notification sounds for Pomodoro phase transitions',
+      enableTitle: 'Enable Notification Sounds',
+      enableDescription: 'Play sound alerts on phase transitions',
+      volume: 'Volume',
+      volumeDescription: 'Adjust the volume of notification sounds',
+      soundTheme: 'Sound Theme',
+      soundThemeDescription: 'Select the notification sound style',
+      theme8bit: '8-bit Retro',
+      theme16bit: '16-bit Classic',
+      themeCustom: 'Custom Sounds',
+      testSounds: 'Test Sounds',
+      testSoundsDescription: 'Click to preview notification sounds',
+      testWorkComplete: '🎵 Work Complete',
+      testBreakComplete: '🎵 Break Complete',
+      testSessionComplete: '🎵 Session Complete',
+      positions: {
+        'bottom-right': 'Bottom Right',
+        'bottom-left': 'Bottom Left',
+        'top-right': 'Top Right',
+        'top-left': 'Top Left'
+      },
+      sizes: {
+        small: 'Small (180px)',
+        medium: 'Medium (240px)',
+        large: 'Large (300px)'
+      }
+    },
+    clock: {
+      title: 'Desktop Clock',
+      description: 'Display Pomodoro countdown in a separate window',
+      enableTitle: 'Enable Desktop Clock',
+      enableDescription: 'Show countdown timer in a separate window',
+      position: 'Position',
+      positionDescription: 'Choose the position of the clock window',
+      size: 'Size',
+      sizeDescription: 'Choose the size of the clock window'
+    },
     savedSuccessfully: 'Settings saved successfully',
     saveFailed: 'Failed to save settings',
     failedToUpdateDatabase: 'Failed to update database path',
