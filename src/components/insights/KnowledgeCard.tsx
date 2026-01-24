@@ -34,14 +34,14 @@ export function KnowledgeCard({
 
   return (
     <Card
-      className="group relative shadow-sm transition-shadow hover:shadow-md"
+      className="group card-hover relative cursor-pointer shadow-sm transition-shadow hover:shadow-md"
       onClick={() => onView(knowledge)}
       role="button"
       tabIndex={0}>
       <CardHeader className="pb-3">
         <div className="mb-1 flex items-center gap-2">
           <CardTitle className="warp-break-words text-lg leading-tight">{knowledge.title}</CardTitle>
-          {knowledge.favorite && <Star className="h-4 w-4 shrink-0 fill-yellow-400 text-yellow-400" />}
+          {knowledge.favorite && <Star className="icon-bounce h-4 w-4 shrink-0 fill-yellow-400 text-yellow-400" />}
         </div>
         <div className="flex items-center justify-between gap-3">
           <CardDescription className="text-xs">

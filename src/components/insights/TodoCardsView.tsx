@@ -136,10 +136,11 @@ export function TodoCardsView({ todos, selectedCategory, onComplete, onDelete, o
                     : t('insights.noTodos', 'No todos')}
           </div>
         ) : (
-          filteredTodos.map((todo) => (
+          filteredTodos.map((todo, i) => (
             <div
               key={todo.id}
-              className="group bg-card relative cursor-pointer rounded-lg border p-4 shadow-sm transition-shadow hover:shadow-md"
+              className="group animate-in fade-in slide-in-from-bottom-2 bg-card relative cursor-pointer rounded-lg border p-4 shadow-sm transition-shadow duration-200 hover:shadow-md"
+              style={{ animationDelay: `${i * 30}ms`, animationFillMode: 'backwards' }}
               onClick={() => onTodoClick?.(todo)}>
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">

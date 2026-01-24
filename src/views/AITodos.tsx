@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { motion, AnimatePresence } from 'framer-motion'
 import { useInsightsStore } from '@/lib/stores/insights'
 import { PendingTodoList } from '@/components/insights/PendingTodoList'
 import { TodoCalendarView } from '@/components/insights/TodoCalendarView'
@@ -29,18 +28,6 @@ import { CreateTodoDialog } from '@/components/insights/CreateTodoDialog'
 import { TodoCategorySidebar } from '@/components/insights/TodoCategorySidebar'
 
 type ViewMode = 'calendar' | 'cards'
-
-// Animation variants for view transitions
-const viewVariants = {
-  initial: { opacity: 0, y: 20 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -20 }
-}
-
-const viewTransition = {
-  duration: 0.3,
-  ease: [0.4, 0, 0.2, 1] as const
-}
 
 export default function AITodosView() {
   const { t, i18n } = useTranslation()
@@ -317,139 +304,123 @@ export default function AITodosView() {
         }
       />
 
-      <AnimatePresence mode="wait">
-        {viewMode === 'cards' ? (
-          <motion.div
-            key="cards-view"
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            variants={viewVariants}
-            transition={viewTransition}
-            className="flex h-full flex-1 gap-6 overflow-hidden px-6 pb-6">
-            {/* Left Sidebar - Categories */}
-            <TodoCategorySidebar
+      {viewMode === 'cards' ? (
+        <div className="animate-in fade-in slide-in-from-bottom-2 flex h-full flex-1 gap-6 overflow-hidden px-6 pb-6 duration-300">
+          {/* Left Sidebar - Categories */}
+          <TodoCategorySidebar
+            todos={todos}
+            selectedCategory={selectedCategory}
+            onCategoryChange={setSelectedCategory}
+          />
+
+          {/* Main Content */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <TodoCardsView
               todos={todos}
               selectedCategory={selectedCategory}
-              onCategoryChange={setSelectedCategory}
+              onComplete={handleCompleteTodo}
+              onDelete={handleDeleteTodo}
+              onExecuteInChat={handleExecuteInChat}
+              onTodoClick={handleTodoClick}
             />
+          </div>
+        </div>
+      ) : (
+        <div className="animate-in fade-in slide-in-from-bottom-2 flex h-full flex-1 gap-6 overflow-hidden px-6 pb-6 duration-300">
+          {/* Left column: calendar */}
+          <div className="flex flex-1 flex-col overflow-hidden">
+            <TodoCalendarView todos={scheduledTodos} selectedDate={selectedDate} onDateSelect={handleDateClick} />
+          </div>
 
-            {/* Main Content */}
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <TodoCardsView
-                todos={todos}
-                selectedCategory={selectedCategory}
-                onComplete={handleCompleteTodo}
-                onDelete={handleDeleteTodo}
-                onExecuteInChat={handleExecuteInChat}
-                onTodoClick={handleTodoClick}
-              />
-            </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="calendar-view"
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            variants={viewVariants}
-            transition={viewTransition}
-            className="flex h-full flex-1 gap-6 overflow-hidden px-6 pb-6">
-            {/* Left column: calendar */}
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <TodoCalendarView todos={scheduledTodos} selectedDate={selectedDate} onDateSelect={handleDateClick} />
+          {/* Right column: pending section - hidden on small screens */}
+          <div className="hidden w-80 shrink-0 flex-col overflow-hidden rounded-lg border xl:flex">
+            <div className="shrink-0 border-b px-4 py-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold">{t('insights.pendingTodos', 'Pending todos')}</h2>
+                  <p className="text-muted-foreground text-xs">
+                    {pendingTodos.length} {t('insights.todosCount', 'todos')}
+                  </p>
+                </div>
+              </div>
             </div>
 
-            {/* Right column: pending section - hidden on small screens */}
-            <div className="hidden w-80 shrink-0 flex-col overflow-hidden rounded-lg border xl:flex">
-              <div className="shrink-0 border-b px-4 py-3">
-                <div className="flex items-center justify-between">
+            <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
+              {pendingTodos.length === 0 ? (
+                <EmptyState
+                  icon={Bot}
+                  title={t('insights.noPendingTodos', 'No pending todos')}
+                  description={t(
+                    'insights.todosGeneratedFromActivities',
+                    'AI will automatically generate todos from your activities'
+                  )}
+                />
+              ) : (
+                <PendingTodoList
+                  todos={pendingTodos}
+                  onExecuteInChat={handleExecuteInChat}
+                  onDelete={handleDeleteTodo}
+                  onComplete={handleCompleteTodo}
+                  onSchedule={handleUpdateSchedule}
+                />
+              )}
+            </div>
+            <ScrollToTop containerRef={scrollContainerRef} />
+          </div>
+
+          {/* Floating button to open sidebar on small screens */}
+          <Button
+            className="bg-primary text-primary-foreground fixed right-6 bottom-6 h-14 w-14 rounded-full shadow-lg xl:hidden"
+            size="icon"
+            onClick={() => setSidebarOpen(true)}>
+            <ListTodo className="h-6 w-6" />
+          </Button>
+
+          {/* Overlay sidebar for small screens */}
+          {sidebarOpen && (
+            <>
+              {/* Backdrop */}
+              <div className="fixed inset-0 z-40 bg-black/50 xl:hidden" onClick={() => setSidebarOpen(false)} />
+
+              {/* Sidebar */}
+              <div className="bg-background fixed top-0 right-0 bottom-0 z-50 flex w-80 flex-col shadow-xl xl:hidden">
+                <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
                   <div>
                     <h2 className="font-semibold">{t('insights.pendingTodos', 'Pending todos')}</h2>
                     <p className="text-muted-foreground text-xs">
                       {pendingTodos.length} {t('insights.todosCount', 'todos')}
                     </p>
                   </div>
+                  <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto">
+                  {pendingTodos.length === 0 ? (
+                    <EmptyState
+                      icon={Bot}
+                      title={t('insights.noPendingTodos', 'No pending todos')}
+                      description={t(
+                        'insights.todosGeneratedFromActivities',
+                        'AI will automatically generate todos from your activities'
+                      )}
+                    />
+                  ) : (
+                    <PendingTodoList
+                      todos={pendingTodos}
+                      onExecuteInChat={handleExecuteInChat}
+                      onDelete={handleDeleteTodo}
+                      onComplete={handleCompleteTodo}
+                      onSchedule={handleUpdateSchedule}
+                    />
+                  )}
                 </div>
               </div>
-
-              <div ref={scrollContainerRef} className="flex-1 overflow-y-auto">
-                {pendingTodos.length === 0 ? (
-                  <EmptyState
-                    icon={Bot}
-                    title={t('insights.noPendingTodos', 'No pending todos')}
-                    description={t(
-                      'insights.todosGeneratedFromActivities',
-                      'AI will automatically generate todos from your activities'
-                    )}
-                  />
-                ) : (
-                  <PendingTodoList
-                    todos={pendingTodos}
-                    onExecuteInChat={handleExecuteInChat}
-                    onDelete={handleDeleteTodo}
-                    onComplete={handleCompleteTodo}
-                    onSchedule={handleUpdateSchedule}
-                  />
-                )}
-              </div>
-              <ScrollToTop containerRef={scrollContainerRef} />
-            </div>
-
-            {/* Floating button to open sidebar on small screens */}
-            <Button
-              className="bg-primary text-primary-foreground fixed right-6 bottom-6 h-14 w-14 rounded-full shadow-lg xl:hidden"
-              size="icon"
-              onClick={() => setSidebarOpen(true)}>
-              <ListTodo className="h-6 w-6" />
-            </Button>
-
-            {/* Overlay sidebar for small screens */}
-            {sidebarOpen && (
-              <>
-                {/* Backdrop */}
-                <div className="fixed inset-0 z-40 bg-black/50 xl:hidden" onClick={() => setSidebarOpen(false)} />
-
-                {/* Sidebar */}
-                <div className="bg-background fixed top-0 right-0 bottom-0 z-50 flex w-80 flex-col shadow-xl xl:hidden">
-                  <div className="flex shrink-0 items-center justify-between border-b px-4 py-3">
-                    <div>
-                      <h2 className="font-semibold">{t('insights.pendingTodos', 'Pending todos')}</h2>
-                      <p className="text-muted-foreground text-xs">
-                        {pendingTodos.length} {t('insights.todosCount', 'todos')}
-                      </p>
-                    </div>
-                    <Button variant="ghost" size="icon" onClick={() => setSidebarOpen(false)}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto">
-                    {pendingTodos.length === 0 ? (
-                      <EmptyState
-                        icon={Bot}
-                        title={t('insights.noPendingTodos', 'No pending todos')}
-                        description={t(
-                          'insights.todosGeneratedFromActivities',
-                          'AI will automatically generate todos from your activities'
-                        )}
-                      />
-                    ) : (
-                      <PendingTodoList
-                        todos={pendingTodos}
-                        onExecuteInChat={handleExecuteInChat}
-                        onDelete={handleDeleteTodo}
-                        onComplete={handleCompleteTodo}
-                        onSchedule={handleUpdateSchedule}
-                      />
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            </>
+          )}
+        </div>
+      )}
 
       {/* Todos Detail Dialog - shared between both views */}
       <TodosDetailDialog

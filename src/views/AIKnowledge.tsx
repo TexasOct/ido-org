@@ -312,15 +312,19 @@ export default function AIKnowledgeView() {
             </div>
           ) : (
             <div className="flex-1 space-y-4 overflow-x-hidden overflow-y-auto pr-2">
-              {filteredKnowledge.map((item) => (
-                <KnowledgeCard
+              {filteredKnowledge.map((item, i) => (
+                <div
                   key={item.id}
-                  knowledge={item}
-                  onToggleFavorite={handleToggleFavorite}
-                  onDelete={handleDelete}
-                  onView={handleViewKnowledge}
-                  isAnalyzing={isAnalyzing}
-                />
+                  className="animate-in fade-in slide-in-from-bottom-2 duration-200"
+                  style={{ animationDelay: `${i * 40}ms`, animationFillMode: 'backwards' }}>
+                  <KnowledgeCard
+                    knowledge={item}
+                    onToggleFavorite={handleToggleFavorite}
+                    onDelete={handleDelete}
+                    onView={handleViewKnowledge}
+                    isAnalyzing={isAnalyzing}
+                  />
+                </div>
               ))}
             </div>
           )}

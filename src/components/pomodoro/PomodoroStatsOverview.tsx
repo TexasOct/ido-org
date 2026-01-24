@@ -85,25 +85,30 @@ export function PomodoroStatsOverview({
       {stats.map((stat, index) => {
         const Icon = stat.icon
         return (
-          <Card key={index} className="shadow-none">
-            <CardContent className="py-4">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-muted-foreground text-xs">{stat.label}</span>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-bold tabular-nums">{stat.value}</span>
-                    {stat.unit && <span className="text-muted-foreground text-sm">{stat.unit}</span>}
+          <div
+            key={index}
+            className="animate-in fade-in slide-in-from-bottom-2 duration-200"
+            style={{ animationDelay: `${index * 50}ms`, animationFillMode: 'backwards' }}>
+            <Card className="card-hover shadow-none">
+              <CardContent className="py-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-muted-foreground text-xs">{stat.label}</span>
+                    <div className="flex items-baseline gap-1">
+                      <span className="text-2xl font-bold tabular-nums">{stat.value}</span>
+                      {stat.unit && <span className="text-muted-foreground text-sm">{stat.unit}</span>}
+                    </div>
+                    {'subtitle' in stat && stat.subtitle && (
+                      <span className="text-muted-foreground text-xs">{stat.subtitle}</span>
+                    )}
                   </div>
-                  {'subtitle' in stat && stat.subtitle && (
-                    <span className="text-muted-foreground text-xs">{stat.subtitle}</span>
-                  )}
+                  <div className="bg-primary/10 text-primary shrink-0 rounded-full p-2.5">
+                    <Icon className="h-4 w-4" />
+                  </div>
                 </div>
-                <div className="bg-primary/10 text-primary shrink-0 rounded-full p-2.5">
-                  <Icon className="h-4 w-4" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         )
       })}
     </div>

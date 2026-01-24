@@ -102,7 +102,7 @@ export default function Pomodoro() {
           </TabsList>
 
           {/* Statistics + Todos Tab */}
-          <TabsContent value="stats" className="min-h-0 flex-1">
+          <TabsContent value="stats" className="animate-in fade-in slide-in-from-bottom-2 min-h-0 flex-1 duration-300">
             <div className="flex h-full gap-6">
               {/* Left: Todo List */}
               <aside className="hidden h-full w-[360px] shrink-0 md:block">
@@ -137,7 +137,9 @@ export default function Pomodoro() {
           </TabsContent>
 
           {/* History Tab */}
-          <TabsContent value="history" className="min-h-0 flex-1">
+          <TabsContent
+            value="history"
+            className="animate-in fade-in slide-in-from-bottom-2 min-h-0 flex-1 duration-300">
             <div className="flex h-full gap-6">
               {/* Left: Session List */}
               <div className="flex min-h-0 w-full shrink-0 flex-col space-y-4">
@@ -176,14 +178,18 @@ export default function Pomodoro() {
                     </Card>
                   ) : (
                     <div className="space-y-2">
-                      {sessions.map((session: any) => (
-                        <SessionListItem
+                      {sessions.map((session: any, index: number) => (
+                        <div
                           key={session.id}
-                          session={session}
-                          activityCount={session.activity_count || 0}
-                          isSelected={session.id === selectedSessionId}
-                          onClick={() => handleSessionClick(session.id)}
-                        />
+                          className="animate-in fade-in slide-in-from-bottom-2 duration-200"
+                          style={{ animationDelay: `${index * 30}ms`, animationFillMode: 'backwards' }}>
+                          <SessionListItem
+                            session={session}
+                            activityCount={session.activity_count || 0}
+                            isSelected={session.id === selectedSessionId}
+                            onClick={() => handleSessionClick(session.id)}
+                          />
+                        </div>
                       ))}
                     </div>
                   )}

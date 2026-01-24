@@ -43,7 +43,12 @@ export function MessageItem({ message, isStreaming, isThinking, onRetry }: Messa
   }
 
   return (
-    <div className={cn('max-w-full space-y-3 px-4 pb-8', isStreaming && 'animate-pulse')}>
+    <div
+      className={cn(
+        'max-w-full space-y-3 px-4 pb-8',
+        isUser ? 'slide-in-right' : 'slide-in-left',
+        isStreaming && 'animate-pulse'
+      )}>
       {/* Avatar and username (horizontal layout) */}
       <div className="flex items-center gap-3">
         <div

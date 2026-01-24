@@ -37,19 +37,22 @@ export function WeeklyFocusChart({ data }: WeeklyFocusChartProps) {
   const maxMinutes = dailyGoalMinutes
 
   return (
-    <Card className="shadow-none">
+    <Card className="card-hover animate-in fade-in slide-in-from-bottom-2 shadow-none duration-300">
       <CardHeader>
         <CardTitle className="text-base">{t('pomodoro.review.weeklyFocus.title')}</CardTitle>
         <p className="text-muted-foreground text-sm">{t('pomodoro.review.weeklyFocus.subtitle')}</p>
       </CardHeader>
       <CardContent>
         <div className="space-y-3">
-          {data.map((item) => {
+          {data.map((item, index) => {
             const percentage = (item.minutes / maxMinutes) * 100
             const isOverGoal = percentage > 100
 
             return (
-              <div key={item.day} className="flex items-center gap-3">
+              <div
+                key={item.day}
+                className="animate-in fade-in slide-in-from-left-2 flex items-center gap-3 duration-200"
+                style={{ animationDelay: `${index * 40}ms`, animationFillMode: 'backwards' }}>
                 <div className="text-muted-foreground w-12 text-sm">{item.day}</div>
                 <div className="flex-1">
                   <div className="bg-muted h-8 overflow-hidden rounded-full">

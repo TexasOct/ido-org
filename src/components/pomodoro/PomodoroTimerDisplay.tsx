@@ -342,7 +342,7 @@ export function PomodoroTimerDisplay() {
           {/* Time display */}
           <div
             className={cn(
-              'font-mono text-5xl font-bold tracking-tight tabular-nums transition-all duration-300',
+              'font-mono text-4xl font-bold tracking-tight tabular-nums transition-all duration-300',
               isWorkPhase ? 'text-foreground' : 'text-chart-2'
             )}>
             <span>{formattedMinutes}</span>

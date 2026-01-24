@@ -1,3 +1,5 @@
+import { useSpringValue } from '@/lib/animations/hooks'
+
 interface CircularProgressProps {
   progress: number // 0-100
   size?: number
@@ -17,7 +19,10 @@ export function CircularProgress({
 }: CircularProgressProps) {
   const radius = (size - strokeWidth) / 2
   const circumference = radius * 2 * Math.PI
-  const offset = circumference - (progress / 100) * circumference
+
+  // Animate progress with spring physics
+  const animatedProgress = useSpringValue(progress, 300, 30)
+  const offset = circumference - (animatedProgress / 100) * circumference
 
   return (
     <div className={`relative inline-flex items-center justify-center ${className}`}>
@@ -43,7 +48,7 @@ export function CircularProgress({
           strokeDasharray={circumference}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          className="transition-all duration-500 ease-out"
+          style={{ transition: 'stroke-dashoffset 0.3s ease-out' }}
         />
       </svg>
       {/* Center content */}
