@@ -495,6 +495,18 @@ class PomodoroManager:
                     processing_status="failed",  # No analysis for too-short sessions
                 )
 
+                # Emit completion event for frontend/clock to reset state
+                from core.events import emit_pomodoro_phase_switched
+
+                emit_pomodoro_phase_switched(
+                    session_id=session_id,
+                    new_phase="completed",
+                    current_round=1,
+                    total_rounds=4,
+                    completed_rounds=0,
+                )
+                logger.info(f"Emitted completion event for abandoned session {session_id}")
+
                 # Exit pomodoro mode
                 await self.coordinator.exit_pomodoro_mode()
 
@@ -662,6 +674,20 @@ class PomodoroManager:
                     f"Flushed {len(remaining)} buffered screenshots on session end "
                     f"(session_id={session_id})"
                 )
+
+            # Emit completion event for frontend/clock to reset state
+            # This must happen BEFORE exit_pomodoro_mode() so event reaches frontend
+            # while context is still valid, and AFTER database update for consistency
+            from core.events import emit_pomodoro_phase_switched
+
+            emit_pomodoro_phase_switched(
+                session_id=session_id,
+                new_phase="completed",
+                current_round=session.get("current_round", 1) if session else 1,
+                total_rounds=session.get("total_rounds", 4) if session else 4,
+                completed_rounds=session.get("completed_rounds", 0) if session else 0,
+            )
+            logger.info(f"Emitted completion event for manually ended session {session_id}")
 
             # Exit pomodoro mode (this will also flush in PerceptionManager.clear_pomodoro_session)
             await self.coordinator.exit_pomodoro_mode()

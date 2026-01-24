@@ -44,7 +44,14 @@ export function PomodoroTimer({
   usePomodoroPhaseSwitched((payload) => {
     console.log('[Pomodoro] Phase switched:', payload)
 
-    // Refresh session data to get updated phase info
+    // Handle session completion (from manual end or automatic completion)
+    // usePomodoroStateSync handles the state reset, so we just skip API call
+    if (payload.new_phase === 'completed') {
+      console.log('[Pomodoro] Session completed via phase-switched event')
+      return
+    }
+
+    // Refresh session data to get updated phase info for work/break phases
     getPomodoroStatus()
       .then((result) => {
         if (result.success && result.data) {

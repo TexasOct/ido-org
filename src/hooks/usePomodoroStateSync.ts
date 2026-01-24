@@ -77,18 +77,21 @@ export function usePomodoroStateSync() {
     onPhaseSwitched: async (payload) => {
       console.log('[PomodoroStateSync] Phase switched:', payload)
 
-      // Fetch full session info to update state
+      // For completed phase, reset without API call (prevents race condition with polling)
+      // This handles both manual end and automatic session completion
+      if (payload.new_phase === 'completed') {
+        console.log('[PomodoroStateSync] Session completed, scheduling state reset')
+        setTimeout(() => {
+          reset()
+        }, 3000)
+        return
+      }
+
+      // For work/break phases, fetch full session info to update state
       try {
         const result = await getPomodoroStatus()
         if (result.success && result.data) {
           setSession(result.data)
-
-          // If session completed, reset after a short delay
-          if (payload.new_phase === 'completed') {
-            setTimeout(() => {
-              reset()
-            }, 3000)
-          }
         }
       } catch (err) {
         console.error('[PomodoroStateSync] Failed to update on phase switch:', err)
